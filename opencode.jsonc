@@ -1,0 +1,41 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/muse-spark-1.3-contributor",
+  "default_agent": "android-lead",
+  "permissions": [
+    {
+      "action": "shell",
+      "resource": "git add *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "git commit *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "git push *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "git tag *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "git checkout *",
+      "effect": "ask"
+    },
+    {
+      "action": "shell",
+      "resource": "git reset *",
+      "effect": "ask"
+    }
+  ],
+  "experimental": {
+    "todo": true,
+    "subagent_depth": 2
+  }
+}
