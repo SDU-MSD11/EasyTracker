@@ -17,6 +17,9 @@ private val KEY_CONTACT = stringPreferencesKey("profile_contact")
 private val KEY_NEW_EXPENSE = booleanPreferencesKey("notify_new_expense")
 private val KEY_REMINDERS = booleanPreferencesKey("notify_reminders")
 private val KEY_SETTLEMENTS = booleanPreferencesKey("notify_settlements")
+private val KEY_AUTH_TOKEN = stringPreferencesKey("auth_token")
+private val KEY_AUTH_USER_ID = stringPreferencesKey("auth_user_id")
+private val KEY_AUTH_EMAIL = stringPreferencesKey("auth_email")
 
 /**
  * Current-device profile + notification settings store.
@@ -55,6 +58,29 @@ class UserPreferences(private val dataStore: DataStore<Preferences>) {
             it[KEY_NEW_EXPENSE] = prefs.newExpense
             it[KEY_REMINDERS] = prefs.reminders
             it[KEY_SETTLEMENTS] = prefs.settlementUpdates
+        }
+    }
+
+    /** Bearer JWT + identity. Null token = signed out; interceptor sends no header. */
+    val authToken: Flow<String?> = dataStore.data.map { it[KEY_AUTH_TOKEN] }
+
+    val authUserId: Flow<UserId?> = dataStore.data.map { it[KEY_AUTH_USER_ID] }
+
+    val authEmail: Flow<String?> = dataStore.data.map { it[KEY_AUTH_EMAIL] }
+
+    suspend fun saveAuth(token: String, userId: UserId, email: String) {
+        dataStore.edit {
+            it[KEY_AUTH_TOKEN] = token
+            it[KEY_AUTH_USER_ID] = userId
+            it[KEY_AUTH_EMAIL] = email
+        }
+    }
+
+    suspend fun clearAuth() {
+        dataStore.edit {
+            it.remove(KEY_AUTH_TOKEN)
+            it.remove(KEY_AUTH_USER_ID)
+            it.remove(KEY_AUTH_EMAIL)
         }
     }
 

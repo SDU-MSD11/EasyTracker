@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.sdumsd11.easytracker.navigation.AppNavHost
 import com.sdumsd11.easytracker.navigation.rememberEasyNavController
+import com.sdumsd11.easytracker.ui.screens.SplashScreen
 import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun EasyTrackerAppPreview() {
     EasyTrackerTheme {
-        AppNavHost(rememberEasyNavController())
+        // NavHost needs Hilt (VM-scoped destinations); preview the Hilt-free splash instead.
+        SplashScreen(onDone = {})
     }
 }

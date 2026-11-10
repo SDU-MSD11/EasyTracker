@@ -37,5 +37,13 @@
   "experimental": {
     "todo": true,
     "subagent_depth": 2
+  },
+  "mcp": {
+    "figma": {
+      "type": "remote",
+      "url": "https://mcp.figma.com/mcp",
+      "enabled": true,
+      "oauth": {}
+    }
   }
 }

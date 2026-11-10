@@ -9,6 +9,10 @@ package com.sdumsd11.easytracker.navigation
  *   [GroupDetail]; the graph does not gate (deep links must still land safely).
  * - Point-of-no-return: after payment, navigate to [paymentSuccess] with
  *   `popUpTo(makePayment(..)) { inclusive = true }` so back lands on [GroupDetail], never a resubmit.
+ * - Auth-gate (LAW): [Login]/[Register] are the only unauthenticated entries. Splash routes
+ *   logged-in users to [Groups] else [Login]; [Groups]/[Account] redirect to [Login] when the
+ *   session VM reports unauthenticated (VM state, never a graph hack). After auth success,
+ *   navigate with `popUpTo(Login) { inclusive = true }` so back never returns to the form.
  */
 object GroupsTab {
     const val JOINED = "joined"
@@ -17,6 +21,10 @@ object GroupsTab {
 
 object Routes {
     const val Splash = "splash"
+
+    /** Only unauthenticated entries; success pops these inclusively (see auth-gate law above). */
+    const val Login = "login"
+    const val Register = "register"
 
     const val ArgTab = "tab"
     const val Groups = "groups?$ArgTab={$ArgTab}"
