@@ -55,7 +55,11 @@ fun ExpenseDto.toDomain(): Expense = Expense(
     splitAmong = splitAmong.ifEmpty { listOf(payerId) },
     receiptUri = receiptUri,
     createdAt = createdAt.toEpochMillis(),
+    // Stable kind from the server (payments folded into expenses); never the description.
+    isSettlement = kind == KIND_SETTLEMENT,
 )
+
+private const val KIND_SETTLEMENT = "settlement"
 
 fun SettlementDto.toDomain(): Settlement = Settlement(fromId = fromId, toId = toId, amountCents = amountCents)
 

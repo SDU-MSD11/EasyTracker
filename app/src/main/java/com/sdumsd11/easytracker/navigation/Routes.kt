@@ -53,8 +53,16 @@ object Routes {
     fun makePayment(groupId: String) = "groups/$groupId/pay"
 
     const val ArgTxId = "txId"
-    const val PaymentSuccess = "payments/success/{$ArgTxId}"
-    fun paymentSuccess(txId: String) = "payments/success/$txId"
+    const val ArgAmount = "amountCents"
+    const val PaymentSuccess = "payments/success/{$ArgTxId}?$ArgAmount={$ArgAmount}&$ArgGroupId={$ArgGroupId}"
+    fun paymentSuccess(txId: String, amountCents: Long? = null, groupId: String? = null) = buildString {
+        append("payments/success/$txId")
+        val q = listOfNotNull(
+            amountCents?.let { "$ArgAmount=$it" },
+            groupId?.let { "$ArgGroupId=$it" },
+        )
+        if (q.isNotEmpty()) append("?${q.joinToString("&")}")
+    }
 
     const val ArgError = "error"
     const val PaymentFailed = "payments/failed?$ArgError={$ArgError}"
@@ -68,9 +76,14 @@ object Routes {
     const val Settings = "settings"
     const val EditProfile = "account/edit"
 
-    const val Receipt = "receipts?$ArgTxId={$ArgTxId}"
-    fun receipt(txId: String? = null) = buildString {
+    const val Receipt = "receipts?$ArgTxId={$ArgTxId}&$ArgAmount={$ArgAmount}&$ArgGroupId={$ArgGroupId}"
+    fun receipt(txId: String? = null, amountCents: Long? = null, groupId: String? = null) = buildString {
         append("receipts")
-        if (txId != null) append("?$ArgTxId=$txId")
+        val q = listOfNotNull(
+            txId?.let { "$ArgTxId=$it" },
+            amountCents?.let { "$ArgAmount=$it" },
+            groupId?.let { "$ArgGroupId=$it" },
+        )
+        if (q.isNotEmpty()) append("?${q.joinToString("&")}")
     }
 }

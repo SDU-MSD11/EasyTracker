@@ -64,7 +64,7 @@ fun GroupEntity.toDomain(): Group = Group(
     invites = invites.decodeInvites(),
 )
 
-fun Expense.toEntity(): ExpenseEntity = ExpenseEntity(
+fun Expense.toEntity(isLocalMirror: Boolean = false): ExpenseEntity = ExpenseEntity(
     id = id,
     groupId = groupId,
     payerId = payerId,
@@ -73,6 +73,8 @@ fun Expense.toEntity(): ExpenseEntity = ExpenseEntity(
     splitAmong = splitAmong.encode(),
     receiptUri = receiptUri,
     createdAt = createdAt,
+    isSettlement = isSettlement,
+    isLocalMirror = isLocalMirror,
 )
 
 fun ExpenseEntity.toDomain(): Expense = Expense(
@@ -85,4 +87,5 @@ fun ExpenseEntity.toDomain(): Expense = Expense(
     splitAmong = splitAmong.decodeList().ifEmpty { listOf(payerId) },
     receiptUri = receiptUri,
     createdAt = createdAt,
+    isSettlement = isSettlement,
 )

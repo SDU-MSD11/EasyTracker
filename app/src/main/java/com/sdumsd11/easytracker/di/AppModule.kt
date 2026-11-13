@@ -14,6 +14,7 @@ import com.sdumsd11.easytracker.data.NotificationService
 import com.sdumsd11.easytracker.data.UserRepository
 import com.sdumsd11.easytracker.data.fake.FakeNotificationService
 import com.sdumsd11.easytracker.data.local.EasyTrackerDatabase
+import com.sdumsd11.easytracker.data.outbox.Outbox
 import com.sdumsd11.easytracker.data.prefs.UserPreferences
 import com.sdumsd11.easytracker.data.remote.ApiService
 import dagger.Module
@@ -99,5 +100,6 @@ object AppModule {
         db: EasyTrackerDatabase,
         prefs: UserPreferences,
         @IoDispatcher io: CoroutineDispatcher,
-    ): ExpenseRepository = ApiExpenseRepository(api, db, prefs, io)
+        outbox: Outbox,
+    ): ExpenseRepository = ApiExpenseRepository(api, db, prefs, io, outbox)
 }

@@ -16,6 +16,8 @@ data class LoginRequest(val email: String, val password: String)
 
 data class InviteDto(val userId: String, val status: String)
 
+data class MemberDto(val id: String, val name: String, val email: String = "")
+
 data class GroupDto(
     val id: String,
     val name: String,
@@ -23,6 +25,7 @@ data class GroupDto(
     val ownerId: String,
     val memberIds: List<String> = emptyList(),
     val invites: List<InviteDto> = emptyList(),
+    val members: List<MemberDto> = emptyList(),
     val createdAt: String? = null,
 )
 
@@ -47,6 +50,8 @@ data class ExpenseDto(
     val splitAmong: List<String> = emptyList(),
     val receiptUri: String? = null,
     val createdAt: String? = null,
+    /** Wire discriminator: "settlement" for payment rows folded into expenses, else "expense". */
+    val kind: String = "expense",
 )
 
 data class CreateExpenseRequest(

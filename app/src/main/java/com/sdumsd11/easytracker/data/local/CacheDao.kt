@@ -37,8 +37,15 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE groupId = :groupId ORDER BY createdAt DESC")
     fun observeByGroup(groupId: String): Flow<List<ExpenseEntity>>
 
+    @Query("SELECT * FROM expenses ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<ExpenseEntity>>
+
     @Upsert
     suspend fun upsert(expense: ExpenseEntity)
+
+    /** Client-mirror rows for [groupId] (offline-first mirrors, never server rows). */
+    @Query("SELECT * FROM expenses WHERE groupId = :groupId AND isLocalMirror = 1")
+    suspend fun localMirrors(groupId: String): List<ExpenseEntity>
 
     @Query("DELETE FROM expenses WHERE id = :id")
     suspend fun deleteById(id: String)

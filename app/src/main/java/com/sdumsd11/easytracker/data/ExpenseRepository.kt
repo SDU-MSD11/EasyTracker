@@ -21,6 +21,37 @@ interface ExpenseRepository {
 
     suspend fun addExpense(expense: Expense): RequestStatus<Expense>
 
+    /**
+     * PATCH /api/expenses/:id; null fields are left unchanged. Null [receiptUri]
+     * keeps the stored receipt (backend null also means "no change" here — clearing
+     * a receipt needs a dedicated contract).
+     */
+    suspend fun updateExpense(
+        expenseId: ExpenseId,
+        amountCents: Long? = null,
+        description: String? = null,
+        splitAmong: List<String>? = null,
+        receiptUri: String? = null,
+    ): RequestStatus<Expense>
+
+    /** Cross-group payment history, newest first (Room cache; never triggers network). */
+    fun observeAllExpenses(): Flow<RequestStatus<List<Expense>>>
+
+    /**
+     * Explicit cross-group refresh (parallel per-group fetch, single-flighted,
+     * bypasses the background throttle). Returns false when any group fetch
+     * failed — the flow surfaces it when the cache is empty.
+     * History calls this on first paint/retry; Account chips only collect the cache.
+     */
+    suspend fun refreshAllExpenses(): Boolean
+
+    /**
+     * Explicit per-group refresh (single-flighted, bypasses the background
+     * throttle); false on network failure. Detail calls this on first paint
+     * while the cache flow stays the instant source of truth.
+     */
+    suspend fun refreshExpenses(groupId: GroupId): Boolean
+
     suspend fun deleteExpense(expenseId: ExpenseId): RequestStatus<Unit>
 
     /**

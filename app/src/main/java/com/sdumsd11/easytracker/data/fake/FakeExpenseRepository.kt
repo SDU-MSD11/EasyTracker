@@ -80,6 +80,38 @@ class FakeExpenseRepository(
         return RequestStatus.Success(stored)
     }
 
+    override suspend fun updateExpense(
+        expenseId: ExpenseId,
+        amountCents: Long?,
+        description: String?,
+        splitAmong: List<String>?,
+        receiptUri: String?,
+    ): RequestStatus<Expense> {
+        if (amountCents != null && amountCents < 0L) return RequestStatus.Failed("Amount must be >= 0")
+        val current = expenses.value[expenseId] ?: return RequestStatus.Failed("Expense not found")
+        val updated = current.copy(
+            amountCents = amountCents ?: current.amountCents,
+            description = description ?: current.description,
+            splitAmong = splitAmong ?: current.splitAmong,
+            receiptUri = receiptUri ?: current.receiptUri,
+        )
+        expenses.update { it + (expenseId to updated) }
+        queue.enqueue("update-expense:$expenseId") { sync.sync() }
+        return RequestStatus.Success(updated)
+    }
+
+    override fun observeAllExpenses(): Flow<RequestStatus<List<Expense>>> =
+        expenses.map { all ->
+            RequestStatus.Success(
+                all.values.sortedByDescending(Expense::createdAt),
+            ) as RequestStatus<List<Expense>>
+        }.onStart { emit(RequestStatus.Pending) }
+
+    // In-memory: nothing to fetch; collecting the cache never triggers network either.
+    override suspend fun refreshAllExpenses(): Boolean = true
+
+    override suspend fun refreshExpenses(groupId: GroupId): Boolean = true
+
     override suspend fun deleteExpense(expenseId: ExpenseId): RequestStatus<Unit> {
         val removed = expenses.value.containsKey(expenseId)
         expenses.update { it - expenseId }
@@ -96,6 +128,8 @@ class FakeExpenseRepository(
                 amountCents = settlement.amountCents,
                 description = "Settlement",
                 splitAmong = listOf(settlement.toId),
+                // Fake mirrors the wire contract: payment rows carry the settlement kind.
+                isSettlement = true,
             ),
         )
         if (result is RequestStatus.Success) {

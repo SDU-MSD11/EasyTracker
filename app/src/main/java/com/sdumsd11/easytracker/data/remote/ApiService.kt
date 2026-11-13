@@ -35,7 +35,7 @@ interface ApiService {
     suspend fun deleteGroup(@Path("id") id: String): Response<Unit>
 
     @POST("groups/{id}/members")
-    suspend fun addMember(@Path("id") id: String, @Body body: AddMemberRequest): Response<InviteDto>
+    suspend fun addMember(@Path("id") id: String, @Body body: AddMemberRequest): Response<GroupDto>
 
     @DELETE("groups/{id}/members/{userId}")
     suspend fun removeMember(@Path("id") id: String, @Path("userId") userId: String): Response<Unit>

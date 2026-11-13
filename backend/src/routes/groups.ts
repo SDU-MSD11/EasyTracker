@@ -28,10 +28,15 @@ async function groupJson(gid: string) {
   const g = (await q("SELECT * FROM groups WHERE id=$1", [gid])).rows[0];
   if (!g) return null;
   const m = (await q("SELECT user_id,status FROM group_members WHERE group_id=$1", [gid])).rows;
+  const members = (await q(
+    "SELECT u.id,u.name,u.email FROM users u JOIN group_members m ON m.user_id=u.id WHERE m.group_id=$1 AND m.status='ACCEPTED'",
+    [gid]
+  )).rows;
   return {
     id: g.id, name: g.name, description: g.description, ownerId: g.owner_id,
     memberIds: m.filter((x) => x.status === "ACCEPTED").map((x) => x.user_id),
     invites: m.map((x) => ({ userId: x.user_id, status: x.status })),
+    members: members.map((u) => ({ id: u.id, name: u.name, email: u.email })),
     createdAt: g.created_at,
   };
 }
@@ -39,6 +44,15 @@ const needMember = async (gid: string, uid: string) => (await statusOf(gid, uid)
 const expJson = (r: any) => ({
   id: r.id, groupId: r.group_id, payerId: r.payer_id, amountCents: Number(r.amount_cents),
   description: r.description, splitAmong: r.split_among ?? [], receiptUri: r.receipt_uri ?? null, createdAt: r.created_at,
+  kind: "expense",
+});
+// Payments fold into the expenses listing so every member sees repayments (history +
+// paid progress) on refresh. Same expense shape + stable kind; the id equals the
+// payment txId, so clients upserting by id reconcile their local mirror, no dupes.
+const payJson = (r: any) => ({
+  id: r.id, groupId: r.group_id, payerId: r.from_id, amountCents: Number(r.amount_cents),
+  description: "Settlement", splitAmong: [r.to_id], receiptUri: null, createdAt: r.created_at,
+  kind: "settlement",
 });
 
 groupsRouter.get("/groups", async (req: AuthedRequest, res) => {
@@ -56,7 +70,7 @@ groupsRouter.post("/groups", async (req: AuthedRequest, res) => {
   await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED')", [g.id, uid]);
   for (const email of p.data.memberEmails) {
     const u = (await q("SELECT id FROM users WHERE email=$1", [email.toLowerCase()])).rows[0];
-    if (u && u.id !== uid) await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'PENDING') ON CONFLICT DO NOTHING", [g.id, u.id]);
+    if (u && u.id !== uid) await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED') ON CONFLICT(group_id,user_id) DO UPDATE SET status='ACCEPTED'", [g.id, u.id]);
   }
   res.status(201).json(await groupJson(g.id));
 });
@@ -85,11 +99,11 @@ groupsRouter.delete("/groups/:id", async (req: AuthedRequest, res) => {
 groupsRouter.post("/groups/:id/members", async (req: AuthedRequest, res) => {
   const p = addMember.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: "invalid body" });
-  if (!await needMember(req.params.id, req.user!.id)) return res.status(404).json({ error: "not found" });
+  if (!await isOwner(req.params.id, req.user!.id)) return res.status(403).json({ error: "owner only" });
   const u = (await q("SELECT id FROM users WHERE email=$1", [p.data.email.toLowerCase()])).rows[0];
   if (!u) return res.status(404).json({ error: "user not found" });
-  await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'PENDING') ON CONFLICT DO NOTHING", [req.params.id, u.id]);
-  res.status(201).json({ userId: u.id, status: "PENDING" });
+  await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED') ON CONFLICT(group_id,user_id) DO UPDATE SET status='ACCEPTED'", [req.params.id, u.id]);
+  res.status(201).json(await groupJson(req.params.id));
 });
 
 groupsRouter.delete("/groups/:id/members/:userId", async (req: AuthedRequest, res) => {
@@ -113,8 +127,11 @@ groupsRouter.post("/groups/:id/invites/respond", async (req: AuthedRequest, res)
 
 groupsRouter.get("/groups/:id/expenses", async (req: AuthedRequest, res) => {
   if (!await needMember(req.params.id, req.user!.id)) return res.status(404).json({ error: "not found" });
-  const r = await q("SELECT * FROM expenses WHERE group_id=$1 ORDER BY created_at DESC", [req.params.id]);
-  res.json(r.rows.map(expJson));
+  const r = await q("SELECT * FROM expenses WHERE group_id=$1", [req.params.id]);
+  const p = await q("SELECT * FROM payments WHERE group_id=$1", [req.params.id]);
+  const rows = [...r.rows.map(expJson), ...p.rows.map(payJson)]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json(rows);
 });
 
 groupsRouter.post("/groups/:id/expenses", async (req: AuthedRequest, res) => {

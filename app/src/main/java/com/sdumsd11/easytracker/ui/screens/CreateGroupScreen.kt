@@ -9,6 +9,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -19,21 +20,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.core.RequestStatus
+import com.sdumsd11.easytracker.domain.model.Group
 import com.sdumsd11.easytracker.ui.components.EasyCard
 import com.sdumsd11.easytracker.ui.components.MemberChip
 import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
 
+/**
+ * Create group. Creation runs in the VM owner ([onCreate]); [createResult] success
+ * fires [onCreated] with the real id (mirrors the LoginScreen result convention).
+ */
 @Composable
 fun CreateGroupScreen(
     modifier: Modifier = Modifier,
     onCreated: (String) -> Unit,
     onCancel: () -> Unit,
+    createResult: RequestStatus<Group>? = null,
+    onCreate: (String, String, List<String>) -> Unit = { _, _, _ -> },
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     val invited = remember { mutableStateListOf<String>() }
     val emailValid = email.contains("@")
+    val isSaving = createResult is RequestStatus.Pending
+    val error = (createResult as? RequestStatus.Failed)?.message
+    LaunchedEffect(createResult) {
+        if (createResult is RequestStatus.Success) onCreated(createResult.data.id)
+    }
     ScreenScaffold(title = "Create group", modifier = modifier, onBack = onCancel) {
         OutlinedTextField(
             value = name,
@@ -68,7 +82,12 @@ fun CreateGroupScreen(
                 ) { Text("Add") }
             }
         }
-        NavButton(label = "Create group", onClick = { onCreated("new-group") }, enabled = name.isNotBlank())
+        NavButton(
+            label = if (isSaving) "Creating…" else "Create group",
+            onClick = { onCreate(name.trim(), description, invited.toList()) },
+            enabled = name.isNotBlank() && !isSaving,
+        )
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         SecondaryButton(label = "Cancel", onClick = onCancel)
     }
 }

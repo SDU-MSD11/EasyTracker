@@ -44,4 +44,12 @@ data class ExpenseEntity(
     /** Optional receipt attachment reference only. */
     val receiptUri: String?,
     val createdAt: Long,
+    /** Stable repayment marker from the wire `kind` field (see Mappers). */
+    val isSettlement: Boolean = false,
+    /**
+     * Client-mirror marker: true only for offline-first rows minted locally on a
+     * retryable failure (never for server rows). Lets refresh reconciliation prune
+     * dropped-op mirrors without touching confirmed ledger rows.
+     */
+    val isLocalMirror: Boolean = false,
 )

@@ -14,6 +14,20 @@ interface GroupRepository {
     /** Single group detail (members + invites included). */
     fun observeGroup(groupId: GroupId): Flow<RequestStatus<Group?>>
 
+    /**
+     * Explicit list refresh (single-flighted, bypasses the background throttle).
+     * Returns false when the network failed — the flow surfaces it when the cache
+     * is empty. Groups calls this on first paint while the cache flow stays the
+     * instant source of truth.
+     */
+    suspend fun refreshGroups(): Boolean
+
+    /**
+     * Explicit single-group refresh (single-flighted, bypasses the background
+     * throttle); false on network failure. Detail calls on first paint.
+     */
+    suspend fun refreshGroup(groupId: GroupId): Boolean
+
     suspend fun createGroup(
         name: String,
         description: String,
@@ -26,6 +40,9 @@ interface GroupRepository {
     suspend fun removeMember(groupId: GroupId, userId: UserId): RequestStatus<Unit>
 
     suspend fun respondToInvite(groupId: GroupId, userId: UserId, accept: Boolean): RequestStatus<Unit>
+
+    /** PATCH /api/groups/:id (owner only); null fields are left unchanged. */
+    suspend fun updateGroup(groupId: GroupId, name: String?, description: String?): RequestStatus<Group>
 
     suspend fun deleteGroup(groupId: GroupId): RequestStatus<Unit>
 }

@@ -15,17 +15,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sdumsd11.easytracker.ui.components.Avatar
-import com.sdumsd11.easytracker.ui.components.EasyCard
+import com.sdumsd11.easytracker.ui.components.SectionCard
 import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
 
-/** Account profile. */
+/** Account profile. Display name + stats come from the authenticated session/VMs;
+ * defaults are the honest empty state (never mock debt). */
 @Composable
 fun AccountScreen(
     modifier: Modifier = Modifier,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
-    displayName: String = "Guest",
-    stats: List<String> = listOf("3 groups", "€45 owed", "12 paid"),
+    onSignOut: () -> Unit,
+    displayName: String = "",
+    stats: List<String> = emptyList(),
 ) {
     ScreenScaffold(title = "Account", modifier = modifier) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -40,7 +42,7 @@ fun AccountScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            stats.forEach { stat ->
+            stats.ifEmpty { listOf("No activity yet") }.forEach { stat ->
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -55,8 +57,7 @@ fun AccountScreen(
                 }
             }
         }
-        EasyCard(modifier = Modifier.fillMaxWidth()) {
-            Text("Payments", style = MaterialTheme.typography.titleMedium)
+        SectionCard(title = "Payments", modifier = Modifier.fillMaxWidth()) {
             Text(
                 "See every payment you made or received.",
                 style = MaterialTheme.typography.bodySmall,
@@ -64,8 +65,7 @@ fun AccountScreen(
             )
             SecondaryButton(label = "Payment history", onClick = onHistory)
         }
-        EasyCard(modifier = Modifier.fillMaxWidth()) {
-            Text("Preferences", style = MaterialTheme.typography.titleMedium)
+        SectionCard(title = "Preferences", modifier = Modifier.fillMaxWidth()) {
             Text(
                 "Profile, notifications and theme.",
                 style = MaterialTheme.typography.bodySmall,
@@ -73,11 +73,22 @@ fun AccountScreen(
             )
             SecondaryButton(label = "Settings", onClick = onSettings)
         }
+        SectionCard(title = "Session", modifier = Modifier.fillMaxWidth()) {
+            SecondaryButton(label = "Sign out", onClick = onSignOut)
+        }
     }
 }
 
 @Preview(showBackground = true)
 @Composable
 private fun AccountPreview() {
-    EasyTrackerTheme { AccountScreen(onHistory = {}, onSettings = {}) }
+    EasyTrackerTheme {
+        AccountScreen(
+            onHistory = {},
+            onSettings = {},
+            onSignOut = {},
+            displayName = "Crab",
+            stats = listOf("1 group", "No activity yet"),
+        )
+    }
 }

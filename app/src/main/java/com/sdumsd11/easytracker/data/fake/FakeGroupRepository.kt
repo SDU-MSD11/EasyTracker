@@ -35,6 +35,11 @@ class FakeGroupRepository(
 
     fun setOnline(online: Boolean) = queue.setOnline(online)
 
+    // In-memory: no network; explicit refreshes are no-ops (cache is already the truth).
+    override suspend fun refreshGroups(): Boolean = true
+
+    override suspend fun refreshGroup(groupId: GroupId): Boolean = true
+
     override fun observeGroups(): Flow<RequestStatus<List<Group>>> =
         groups.map { RequestStatus.Success(it.values.sortedBy(Group::name)) as RequestStatus<List<Group>> }
             .onStart { emit(RequestStatus.Pending) }
@@ -83,6 +88,21 @@ class FakeGroupRepository(
                 memberIds = if (accept) (it.memberIds + userId).distinct() else it.memberIds - userId,
             )
         }
+
+    override suspend fun updateGroup(
+        groupId: GroupId,
+        name: String?,
+        description: String?,
+    ): RequestStatus<Group> {
+        val current = groups.value[groupId] ?: return RequestStatus.Failed("Group not found")
+        val updated = current.copy(
+            name = name?.trim()?.ifEmpty { null } ?: current.name,
+            description = description ?: current.description,
+        )
+        groups.update { it + (groupId to updated) }
+        queue.enqueue("update-group:$groupId") { sync.sync() }
+        return RequestStatus.Success(updated)
+    }
 
     override suspend fun deleteGroup(groupId: GroupId): RequestStatus<Unit> {
         val removed = groups.value.containsKey(groupId)

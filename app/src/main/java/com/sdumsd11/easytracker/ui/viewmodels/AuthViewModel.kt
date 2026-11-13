@@ -60,9 +60,15 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun logout() {
+    /**
+     * Suspending sign-out: awaits cache + session clear before the caller navigates,
+     * so the Login self-heal (ForwardWhenAuthenticated) never sees a stale session
+     * and in-flight repo refreshes can't repopulate Room after `clearAllTables`
+     * (refreshes additionally bail when the token is gone).
+     */
+    suspend fun signOut() {
         _authResult.value = null
-        viewModelScope.launch(io) { users.logout() }
+        users.signOut()
     }
 
     fun clearResult() {

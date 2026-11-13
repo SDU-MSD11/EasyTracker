@@ -27,14 +27,15 @@ import kotlinx.coroutines.withContext
 /**
  * UserRepository: member cache reads come from Room (backend has no user-list
  * route, so [upsertUser] is local-only); the device profile is DataStore-backed
- * with a best-effort `/me` refresh. Auth extras ([register]/[login]/[logout])
+ * (source of truth, survives restart) with Room as mirror. No PATCH /me route
+ * exists, so /me sync is explicit via [refreshMe] and never clobbers local
+ * name/contact. Auth extras ([register]/[login]/[signOut])
  * persist the JWT via [UserPreferences]. 401 clears the token.
- * No Hilt binding yet — arch owner wires it.
  */
 @Singleton
 class ApiUserRepository @Inject constructor(
     private val api: ApiService,
-    db: EasyTrackerDatabase,
+    private val db: EasyTrackerDatabase,
     private val prefs: UserPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : UserRepository {
@@ -67,12 +68,11 @@ class ApiUserRepository @Inject constructor(
 
     override fun observeCurrentProfile(): Flow<RequestStatus<User?>> =
         prefs.profile.map { RequestStatus.Success(it) as RequestStatus<User?> }
-            .onStart {
-                emit(RequestStatus.Pending)
-                runCatching { refreshMe() }
-            }.flowOn(io)
+            .onStart { emit(RequestStatus.Pending) }.flowOn(io)
 
+    /** Local-only save (no PATCH /me route): DataStore first, Room mirror second. */
     override suspend fun saveCurrentProfile(user: User): RequestStatus<Unit> = withContext(io) {
+        if (user.name.isBlank()) return@withContext RequestStatus.Failed("Name must not be blank.")
         prefs.saveProfile(user)
         users.upsert(user.toEntity())
         RequestStatus.Success(Unit)
@@ -96,12 +96,20 @@ class ApiUserRepository @Inject constructor(
         }
     }
 
-    /** GET /me — refreshes cached profile; preserves local notification prefs. */
+    /**
+     * GET /me — explicit best-effort sync (never auto-run from [observeCurrentProfile]).
+     * No PATCH /me route exists, so DataStore stays source of truth for name/contact:
+     * a local profile keeps its name/contact and only the Room mirror is refreshed.
+     */
     suspend fun refreshMe(): RequestStatus<User> = withContext(io) {
         when (val r = safeApiCall(clear401) { api.me() }) {
             is RequestStatus.Success -> {
-                val keep = prefs.profile.first()?.notificationPrefs ?: NotificationPrefs()
-                val user = r.data.toDomain().copy(notificationPrefs = keep)
+                // Signed out while in flight: never rewrite the profile after the wipe.
+                if (prefs.authToken.first().isNullOrBlank()) {
+                    return@withContext RequestStatus.Failed("Signed out", retryable = false)
+                }
+                val keep = prefs.profile.first()
+                val user = keep?.copy(id = r.data.id) ?: r.data.toDomain()
                 prefs.saveProfile(user)
                 users.upsert(user.toEntity())
                 RequestStatus.Success(user)
@@ -111,7 +119,11 @@ class ApiUserRepository @Inject constructor(
         }
     }
 
-    suspend fun logout(): Unit = withContext(io) { prefs.clearAuth() }
+    /** Sign-out: clears DataStore session + profile and wipes the Room cache. */
+    suspend fun signOut(): Unit = withContext(io) {
+        prefs.clear()
+        db.clearAllTables()
+    }
 
     private suspend fun persistAuth(token: String, user: User): RequestStatus<User> {
         // toDomain folds the backend email into contact, so contact carries the email here.

@@ -9,7 +9,7 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [UserEntity::class, GroupEntity::class, ExpenseEntity::class],
-    version = 1,
+    version = 3,
     exportSchema = false,
 )
 abstract class EasyTrackerDatabase : RoomDatabase() {

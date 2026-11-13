@@ -136,4 +136,26 @@ class FakeExpenseRepositoryTest {
     fun `deleteExpense unknown id fails without throwing`() = runBlocking {
         assertTrue(repo().deleteExpense("missing") is RequestStatus.Failed)
     }
+
+    @Test
+    fun `updateExpense patches fields and rejects negative amounts`() = runBlocking {
+        val r = repo()
+        r.addExpense(expense("e1", cents = 900L))
+        val updated = r.updateExpense("e1", amountCents = 500L, description = "lunch")
+        assertTrue(updated is RequestStatus.Success)
+        assertEquals(500L, (updated as RequestStatus.Success<Expense>).data.amountCents)
+        assertEquals("lunch", updated.data.description)
+        assertTrue(r.updateExpense("e1", amountCents = -1L) is RequestStatus.Failed)
+        assertTrue(r.updateExpense("missing") is RequestStatus.Failed)
+    }
+
+    @Test
+    fun `observeAllExpenses aggregates groups newest first`() = runBlocking {
+        val r = repo()
+        r.addExpense(expense("old", cents = 100L).copy(groupId = "g1", createdAt = 1L))
+        r.addExpense(expense("new", cents = 200L).copy(groupId = "g2", createdAt = 2L))
+        val all = r.observeAllExpenses().first { it is RequestStatus.Success }
+            as RequestStatus.Success<List<Expense>>
+        assertEquals(listOf("new", "old"), all.data.map { it.id })
+    }
 }
