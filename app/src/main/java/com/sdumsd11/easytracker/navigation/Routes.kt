@@ -1,0 +1,89 @@
+package com.sdumsd11.easytracker.navigation
+
+/**
+ * Route contract — LAW from the nav diagram. String routes (no kotlinx-serialization dep in
+ * this slice); each destination has a pattern + a builder so arg keys live in exactly one place.
+ *
+ * Enforcement notes for implementers:
+ * - Owner-gate: [EditGroup] is admin-only. Its VM checks admin and redirects non-admins to
+ *   [GroupDetail]; the graph does not gate (deep links must still land safely).
+ * - Point-of-no-return: after payment, navigate to [paymentSuccess] with
+ *   `popUpTo(makePayment(..)) { inclusive = true }` so back lands on [GroupDetail], never a resubmit.
+ * - Auth-gate (LAW): [Login]/[Register] are the only unauthenticated entries. Splash routes
+ *   logged-in users to [Groups] else [Login]; [Groups]/[Account] redirect to [Login] when the
+ *   session VM reports unauthenticated (VM state, never a graph hack). After auth success,
+ *   navigate with `popUpTo(Login) { inclusive = true }` so back never returns to the form.
+ */
+object GroupsTab {
+    const val JOINED = "joined"
+    const val FREE = "free"
+}
+
+object Routes {
+    const val Splash = "splash"
+
+    /** Only unauthenticated entries; success pops these inclusively (see auth-gate law above). */
+    const val Login = "login"
+    const val Register = "register"
+
+    const val ArgTab = "tab"
+    const val Groups = "groups?$ArgTab={$ArgTab}"
+    fun groups(tab: String = GroupsTab.JOINED) = "groups?$ArgTab=$tab"
+
+    const val CreateGroup = "create-group"
+
+    const val ArgGroupId = "groupId"
+
+    /** Group Debt Overview; shows EmptyState when the group has no debts (ui-ux). */
+    const val GroupDetail = "groups/{$ArgGroupId}"
+    fun groupDetail(groupId: String) = "groups/$groupId"
+
+    /** Owner-only, see enforcement note above. */
+    const val EditGroup = "groups/{$ArgGroupId}/edit"
+    fun editGroup(groupId: String) = "groups/$groupId/edit"
+
+    const val ArgDebtId = "debtId"
+    const val SetupDebt = "groups/{$ArgGroupId}/debts/setup?$ArgDebtId={$ArgDebtId}"
+    fun setupDebt(groupId: String, debtId: String? = null) = buildString {
+        append("groups/$groupId/debts/setup")
+        if (debtId != null) append("?$ArgDebtId=$debtId")
+    }
+
+    const val MakePayment = "groups/{$ArgGroupId}/pay"
+    fun makePayment(groupId: String) = "groups/$groupId/pay"
+
+    const val ArgTxId = "txId"
+    const val ArgAmount = "amountCents"
+    const val PaymentSuccess = "payments/success/{$ArgTxId}?$ArgAmount={$ArgAmount}&$ArgGroupId={$ArgGroupId}"
+    fun paymentSuccess(txId: String, amountCents: Long? = null, groupId: String? = null) = buildString {
+        append("payments/success/$txId")
+        val q = listOfNotNull(
+            amountCents?.let { "$ArgAmount=$it" },
+            groupId?.let { "$ArgGroupId=$it" },
+        )
+        if (q.isNotEmpty()) append("?${q.joinToString("&")}")
+    }
+
+    const val ArgError = "error"
+    const val PaymentFailed = "payments/failed?$ArgError={$ArgError}"
+    fun paymentFailed(error: String? = null) = buildString {
+        append("payments/failed")
+        if (error != null) append("?$ArgError=$error")
+    }
+
+    const val Account = "account"
+    const val PaymentHistory = "account/history"
+    const val Settings = "settings"
+    const val EditProfile = "account/edit"
+
+    const val Receipt = "receipts?$ArgTxId={$ArgTxId}&$ArgAmount={$ArgAmount}&$ArgGroupId={$ArgGroupId}"
+    fun receipt(txId: String? = null, amountCents: Long? = null, groupId: String? = null) = buildString {
+        append("receipts")
+        val q = listOfNotNull(
+            txId?.let { "$ArgTxId=$it" },
+            amountCents?.let { "$ArgAmount=$it" },
+            groupId?.let { "$ArgGroupId=$it" },
+        )
+        if (q.isNotEmpty()) append("?${q.joinToString("&")}")
+    }
+}
