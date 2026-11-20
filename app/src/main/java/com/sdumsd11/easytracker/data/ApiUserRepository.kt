@@ -8,6 +8,7 @@ import com.sdumsd11.easytracker.data.local.toEntity
 import com.sdumsd11.easytracker.data.prefs.UserPreferences
 import com.sdumsd11.easytracker.data.remote.ApiService
 import com.sdumsd11.easytracker.data.remote.LoginRequest
+import com.sdumsd11.easytracker.data.remote.PatchMeRequest
 import com.sdumsd11.easytracker.data.remote.RegisterRequest
 import com.sdumsd11.easytracker.data.remote.toDomain
 import com.sdumsd11.easytracker.di.IoDispatcher
@@ -26,10 +27,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * UserRepository: member cache reads come from Room (backend has no user-list
- * route, so [upsertUser] is local-only); the device profile is DataStore-backed
- * (source of truth, survives restart) with Room as mirror. No PATCH /me route
- * exists, so /me sync is explicit via [refreshMe] and never clobbers local
- * name/contact. Auth extras ([register]/[login]/[signOut])
+ * route, so [upsertUser] is local-only); the device profile is server-backed
+ * (PATCH /me persists name/contact, visible to others, survives relogin) with
+ * DataStore + Room as mirrors. Auth extras ([register]/[login]/[signOut])
  * persist the JWT via [UserPreferences]. 401 clears the token.
  */
 @Singleton
@@ -70,12 +70,30 @@ class ApiUserRepository @Inject constructor(
         prefs.profile.map { RequestStatus.Success(it) as RequestStatus<User?> }
             .onStart { emit(RequestStatus.Pending) }.flowOn(io)
 
-    /** Local-only save (no PATCH /me route): DataStore first, Room mirror second. */
+    /**
+     * Network-first save: PATCH /me persists name/contact server-side, then the
+     * server user lands in DataStore + Room. On retryable failure (offline) the
+     * local mirror is still updated but [RequestStatus.Failed] is returned — never
+     * a silent success. Non-retryable failures propagate without touching the mirror.
+     */
     override suspend fun saveCurrentProfile(user: User): RequestStatus<Unit> = withContext(io) {
         if (user.name.isBlank()) return@withContext RequestStatus.Failed("Name must not be blank.")
-        prefs.saveProfile(user)
-        users.upsert(user.toEntity())
-        RequestStatus.Success(Unit)
+        when (val r = safeApiCall(clear401) { api.patchMe(PatchMeRequest(user.name, user.contact)) }) {
+            is RequestStatus.Success -> {
+                val merged = r.data.toDomain().copy(notificationPrefs = user.notificationPrefs)
+                prefs.saveProfile(merged)
+                users.upsert(merged.toEntity())
+                RequestStatus.Success(Unit)
+            }
+            is RequestStatus.Failed -> {
+                if (r.retryable) {
+                    prefs.saveProfile(user)
+                    users.upsert(user.toEntity())
+                }
+                r
+            }
+            is RequestStatus.Pending -> r
+        }
     }
 
     /** POST /auth/register — stores token + profile on success. */
@@ -97,9 +115,9 @@ class ApiUserRepository @Inject constructor(
     }
 
     /**
-     * GET /me — explicit best-effort sync (never auto-run from [observeCurrentProfile]).
-     * No PATCH /me route exists, so DataStore stays source of truth for name/contact:
-     * a local profile keeps its name/contact and only the Room mirror is refreshed.
+     * GET /me — explicit refresh; the server is the source of truth, so the server
+     * user wins and lands in DataStore + Room (local notification prefs are kept).
+     * Never auto-run from [observeCurrentProfile].
      */
     suspend fun refreshMe(): RequestStatus<User> = withContext(io) {
         when (val r = safeApiCall(clear401) { api.me() }) {
@@ -108,8 +126,8 @@ class ApiUserRepository @Inject constructor(
                 if (prefs.authToken.first().isNullOrBlank()) {
                     return@withContext RequestStatus.Failed("Signed out", retryable = false)
                 }
-                val keep = prefs.profile.first()
-                val user = keep?.copy(id = r.data.id) ?: r.data.toDomain()
+                val keep = prefs.profile.first()?.notificationPrefs ?: NotificationPrefs()
+                val user = r.data.toDomain().copy(notificationPrefs = keep)
                 prefs.saveProfile(user)
                 users.upsert(user.toEntity())
                 RequestStatus.Success(user)

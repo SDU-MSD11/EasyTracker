@@ -12,11 +12,11 @@ import com.sdumsd11.easytracker.data.ExpenseRepository
 import com.sdumsd11.easytracker.data.GroupRepository
 import com.sdumsd11.easytracker.data.NotificationService
 import com.sdumsd11.easytracker.data.UserRepository
-import com.sdumsd11.easytracker.data.fake.FakeNotificationService
 import com.sdumsd11.easytracker.data.local.EasyTrackerDatabase
 import com.sdumsd11.easytracker.data.outbox.Outbox
 import com.sdumsd11.easytracker.data.prefs.UserPreferences
 import com.sdumsd11.easytracker.data.remote.ApiService
+import com.sdumsd11.easytracker.data.system.SystemNotificationService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -70,10 +70,11 @@ object AppModule {
     fun provideDefaultDispatcher(): CoroutineDispatcher = Dispatchers.Default
 
     // Api* impls are the bound interfaces (NetworkModule owns ApiService/OkHttp/Retrofit);
-    // Fake* impls stay for tests/previews only.
+    // Fake* impls stay for tests/previews only. The system impl posts real tray
+    // notifications so the closed-app poll (SyncWorker) actually notifies.
     @Provides
     @Singleton
-    fun provideNotificationService(): NotificationService = FakeNotificationService()
+    fun provideNotificationService(system: SystemNotificationService): NotificationService = system
 
     @Provides
     @Singleton

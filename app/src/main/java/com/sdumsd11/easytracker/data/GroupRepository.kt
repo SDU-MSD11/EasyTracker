@@ -16,17 +16,17 @@ interface GroupRepository {
 
     /**
      * Explicit list refresh (single-flighted, bypasses the background throttle).
-     * Returns false when the network failed — the flow surfaces it when the cache
-     * is empty. Groups calls this on first paint while the cache flow stays the
-     * instant source of truth.
+     * Returns the pass status so callers surface the real failure reason — the
+     * cached flow still hides failures when the cache is warm. Groups calls this
+     * on first paint while the cache flow stays the instant source of truth.
      */
-    suspend fun refreshGroups(): Boolean
+    suspend fun refreshGroups(): RequestStatus<Unit>
 
     /**
      * Explicit single-group refresh (single-flighted, bypasses the background
-     * throttle); false on network failure. Detail calls on first paint.
+     * throttle); carries the failure reason. Detail calls on first paint.
      */
-    suspend fun refreshGroup(groupId: GroupId): Boolean
+    suspend fun refreshGroup(groupId: GroupId): RequestStatus<Unit>
 
     suspend fun createGroup(
         name: String,

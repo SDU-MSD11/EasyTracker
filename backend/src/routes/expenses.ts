@@ -23,6 +23,10 @@ async function memberExpense(expenseId: string, userId: string) {
   return r.rows[0] as any | undefined;
 }
 
+async function isGroupOwner(groupId: string, userId: string) {
+  return (await q("SELECT 1 FROM groups WHERE id=$1 AND owner_id=$2", [groupId, userId])).rowCount! > 0;
+}
+
 expensesRouter.use(requireAuth);
 
 expensesRouter.get("/expenses/:id", async (req: AuthedRequest, res) => {
@@ -36,6 +40,9 @@ expensesRouter.patch("/expenses/:id", async (req: AuthedRequest, res) => {
   if (!p.success) return res.status(400).json({ error: "invalid body" });
   const e = await memberExpense(req.params.id, req.user!.id);
   if (!e) return res.status(404).json({ error: "not found" });
+  // Edit permission: only the payer or the group owner may patch (403 otherwise).
+  if (e.payer_id !== req.user!.id && !await isGroupOwner(e.group_id, req.user!.id))
+    return res.status(403).json({ error: "payer or owner only" });
   const b = p.data;
   const r = await q(
     `UPDATE expenses SET amount_cents=COALESCE($1,amount_cents), description=COALESCE($2,description),
@@ -48,6 +55,9 @@ expensesRouter.patch("/expenses/:id", async (req: AuthedRequest, res) => {
 expensesRouter.delete("/expenses/:id", async (req: AuthedRequest, res) => {
   const e = await memberExpense(req.params.id, req.user!.id);
   if (!e) return res.status(404).json({ error: "not found" });
+  // Same gate as PATCH: only the payer or the group owner may delete (403 otherwise).
+  if (e.payer_id !== req.user!.id && !await isGroupOwner(e.group_id, req.user!.id))
+    return res.status(403).json({ error: "payer or owner only" });
   await q("DELETE FROM expenses WHERE id=$1", [e.id]);
   res.status(204).end();
 });

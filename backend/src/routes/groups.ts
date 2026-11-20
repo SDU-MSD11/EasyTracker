@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { q } from "../db";
+import { pool, q } from "../db";
 import { requireAuth, AuthedRequest } from "../middleware/auth";
 
 export const groupsRouter = Router();
@@ -66,13 +66,35 @@ groupsRouter.post("/groups", async (req: AuthedRequest, res) => {
   const p = createGroup.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: "invalid body" });
   const uid = req.user!.id;
-  const g = (await q("INSERT INTO groups(name,description,owner_id) VALUES($1,$2,$3) RETURNING id", [p.data.name, p.data.description, uid])).rows[0];
-  await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED')", [g.id, uid]);
-  for (const email of p.data.memberEmails) {
-    const u = (await q("SELECT id FROM users WHERE email=$1", [email.toLowerCase()])).rows[0];
-    if (u && u.id !== uid) await q("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED') ON CONFLICT(group_id,user_id) DO UPDATE SET status='ACCEPTED'", [g.id, u.id]);
+  // Atomic create: group + owner/member rows commit together so a failed member
+  // INSERT can never orphan a group. Unknown emails fail the whole create (no
+  // group is created) so the client can surface "user not found: <email>".
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const memberIds: string[] = [];
+    for (const email of p.data.memberEmails) {
+      const u = (await client.query("SELECT id FROM users WHERE email=$1", [email.toLowerCase()])).rows[0];
+      if (!u) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: `user not found: ${email}` });
+      }
+      if (u.id !== uid) memberIds.push(u.id);
+    }
+    const g = (await client.query("INSERT INTO groups(name,description,owner_id) VALUES($1,$2,$3) RETURNING id", [p.data.name, p.data.description, uid])).rows[0];
+    await client.query("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED')", [g.id, uid]);
+    for (const mid of memberIds) {
+      await client.query("INSERT INTO group_members(group_id,user_id,status) VALUES($1,$2,'ACCEPTED') ON CONFLICT(group_id,user_id) DO UPDATE SET status='ACCEPTED'", [g.id, mid]);
+    }
+    await client.query("COMMIT");
+    res.status(201).json(await groupJson(g.id));
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[groups] create failed:", (e as Error).message);
+    res.status(500).json({ error: "create failed" });
+  } finally {
+    client.release();
   }
-  res.status(201).json(await groupJson(g.id));
 });
 
 groupsRouter.get("/groups/:id", async (req: AuthedRequest, res) => {
@@ -139,7 +161,12 @@ groupsRouter.post("/groups/:id/expenses", async (req: AuthedRequest, res) => {
   if (!p.success) return res.status(400).json({ error: "invalid body" });
   const gid = req.params.id;
   if (!await needMember(gid, req.user!.id)) return res.status(404).json({ error: "not found" });
-  const payer = p.data.payerId ?? req.user!.id;
+  // Debt permission: any member may create a debt, but only for themselves —
+  // the payer is always the caller. A mismatched body payerId is rejected so
+  // nobody can create a debt "for" another user.
+  if (p.data.payerId !== undefined && p.data.payerId !== req.user!.id)
+    return res.status(403).json({ error: "payer must be yourself" });
+  const payer = req.user!.id;
   if (!await needMember(gid, payer)) return res.status(400).json({ error: "payer not a member" });
   let split = p.data.splitAmong;
   if (!split.length) split = (await q("SELECT user_id FROM group_members WHERE group_id=$1 AND status='ACCEPTED'", [gid])).rows.map((x) => x.user_id);

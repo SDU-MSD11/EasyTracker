@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.ui.components.Avatar
 import com.sdumsd11.easytracker.ui.components.SectionCard
 import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
@@ -63,7 +64,7 @@ fun AccountScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            SecondaryButton(label = "Payment history", onClick = onHistory)
+            SecondaryButton(label = "Payment history", icon = R.drawable.receipt, onClick = onHistory)
         }
         SectionCard(title = "Preferences", modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -71,10 +72,10 @@ fun AccountScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            SecondaryButton(label = "Settings", onClick = onSettings)
+            SecondaryButton(label = "Settings", icon = R.drawable.settings, onClick = onSettings)
         }
         SectionCard(title = "Session", modifier = Modifier.fillMaxWidth()) {
-            SecondaryButton(label = "Sign out", onClick = onSignOut)
+            SecondaryButton(label = "Sign out", icon = R.drawable.logout, onClick = onSignOut)
         }
     }
 }

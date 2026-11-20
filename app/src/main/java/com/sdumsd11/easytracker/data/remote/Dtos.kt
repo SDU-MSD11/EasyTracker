@@ -14,6 +14,8 @@ data class RegisterRequest(val name: String, val email: String, val password: St
 
 data class LoginRequest(val email: String, val password: String)
 
+data class PatchMeRequest(val name: String? = null, val contact: String? = null)
+
 data class InviteDto(val userId: String, val status: String)
 
 data class MemberDto(val id: String, val name: String, val email: String = "")

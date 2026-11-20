@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.ui.components.AmountText
 import com.sdumsd11.easytracker.ui.components.EasyCard
 import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
@@ -47,6 +48,7 @@ fun ReceiptScreen(
         }
         NavButton(
             label = "Share receipt",
+            icon = R.drawable.download,
             onClick = { sharePlainText(context, receiptText(amountCents, group.orEmpty(), txId)) },
         )
         SecondaryButton(label = "Done", onClick = onDone)

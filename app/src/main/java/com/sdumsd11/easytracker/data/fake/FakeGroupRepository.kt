@@ -19,6 +19,10 @@ import kotlinx.coroutines.flow.update
  * In-memory GroupRepository. Writes apply to local state immediately (offline-first,
  * so previously retrieved data stays visible); sync is simulated via [sync] and
  * retried in the background through [queue] with eventual-success notification.
+ *
+ * Test fake: permissive by design — [addMember] accepts any id without backend
+ * validation. The real [ApiGroupRepository] validates via POST /groups/:id/members
+ * (404 "user not found" for unknown emails propagates verbatim, no masking).
  */
 class FakeGroupRepository(
     scope: CoroutineScope,
@@ -36,9 +40,9 @@ class FakeGroupRepository(
     fun setOnline(online: Boolean) = queue.setOnline(online)
 
     // In-memory: no network; explicit refreshes are no-ops (cache is already the truth).
-    override suspend fun refreshGroups(): Boolean = true
+    override suspend fun refreshGroups(): RequestStatus<Unit> = RequestStatus.Success(Unit)
 
-    override suspend fun refreshGroup(groupId: GroupId): Boolean = true
+    override suspend fun refreshGroup(groupId: GroupId): RequestStatus<Unit> = RequestStatus.Success(Unit)
 
     override fun observeGroups(): Flow<RequestStatus<List<Group>>> =
         groups.map { RequestStatus.Success(it.values.sortedBy(Group::name)) as RequestStatus<List<Group>> }

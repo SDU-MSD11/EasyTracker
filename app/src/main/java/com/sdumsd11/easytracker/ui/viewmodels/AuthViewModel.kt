@@ -5,6 +5,7 @@ import com.sdumsd11.easytracker.core.BaseViewModel
 import com.sdumsd11.easytracker.core.RequestStatus
 import com.sdumsd11.easytracker.data.ApiUserRepository
 import com.sdumsd11.easytracker.data.prefs.UserPreferences
+import com.sdumsd11.easytracker.data.sync.SyncScheduler
 import com.sdumsd11.easytracker.di.IoDispatcher
 import com.sdumsd11.easytracker.domain.model.User
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,13 +28,13 @@ import kotlinx.coroutines.launch
 class AuthViewModel @Inject constructor(
     private val users: ApiUserRepository,
     private val prefs: UserPreferences,
+    private val syncScheduler: SyncScheduler,
     @param:IoDispatcher private val io: CoroutineDispatcher,
 ) : BaseViewModel() {
 
     val session: StateFlow<RequestStatus<User?>> =
         combine(prefs.authToken, prefs.profile) { token, profile ->
-            if (token.isNullOrBlank()) RequestStatus.Success(null)
-            else RequestStatus.Success(profile)
+            if (token.isNullOrBlank()) RequestStatus.Success(null) else RequestStatus.Success(profile)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, RequestStatus.Pending)
 
     private val _authResult = MutableStateFlow<RequestStatus<User>?>(null)
@@ -43,7 +44,9 @@ class AuthViewModel @Inject constructor(
         _authResult.value = RequestStatus.Pending
         _authResult.value = try {
             validateCredentials(email, password)
-            users.login(email, password)
+            users.login(email, password).also {
+                if (it is RequestStatus.Success) syncScheduler.start()
+            }
         } catch (e: IllegalArgumentException) {
             RequestStatus.Failed(e.message)
         }
@@ -54,20 +57,24 @@ class AuthViewModel @Inject constructor(
         _authResult.value = try {
             require(name.isNotBlank()) { "Name must not be blank." }
             validateCredentials(email, password)
-            users.register(name, email, password)
+            users.register(name, email, password).also {
+                if (it is RequestStatus.Success) syncScheduler.start()
+            }
         } catch (e: IllegalArgumentException) {
             RequestStatus.Failed(e.message)
         }
     }
 
     /**
-     * Suspending sign-out: awaits cache + session clear before the caller navigates,
-     * so the Login self-heal (ForwardWhenAuthenticated) never sees a stale session
+     * Suspending sign-out: stops the background poll first so no sync runs against
+     * the cleared session, then awaits cache + session clear before the caller
+     * navigates, so the Login self-heal (ForwardWhenAuthenticated) never sees a stale session
      * and in-flight repo refreshes can't repopulate Room after `clearAllTables`
      * (refreshes additionally bail when the token is gone).
      */
     suspend fun signOut() {
         _authResult.value = null
+        syncScheduler.stop()
         users.signOut()
     }
 

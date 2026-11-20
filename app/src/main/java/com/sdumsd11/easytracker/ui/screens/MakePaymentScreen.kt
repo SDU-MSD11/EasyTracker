@@ -1,7 +1,11 @@
 package com.sdumsd11.easytracker.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -11,9 +15,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.core.RequestStatus
 import com.sdumsd11.easytracker.ui.components.RequestStatusBanner
 import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
@@ -85,7 +93,17 @@ fun MakePaymentScreen(
     }
     ScreenScaffold(title = "Make payment", modifier = modifier, onBack = onBack) {
         Text("Group: ${groupName ?: "Loading…"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Paying as ${payer?.name ?: "…"}", style = MaterialTheme.typography.bodyMedium)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.credit_card),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Text("Paying as ${payer?.name ?: "…"}", style = MaterialTheme.typography.bodyMedium)
+        }
         OutlinedTextField(
             value = amount,
             onValueChange = { amount = it },
@@ -116,7 +134,7 @@ fun MakePaymentScreen(
             status = payResult?.takeUnless { it is RequestStatus.Failed },
             pendingLabel = "Processing payment…",
         )
-        NavButton(label = if (processing) "Processing…" else "Pay", enabled = !membersMissing && !processing, onClick = {
+        NavButton(label = if (processing) "Processing…" else "Pay", icon = R.drawable.payments, enabled = !membersMissing && !processing, onClick = {
             val value = amount.toDoubleOrNull()
             error = paymentInputError(recipientValid, value, payer?.id, recipientId)
             if (error == null) onPay(recipientId, (value!! * 100).roundToLong())

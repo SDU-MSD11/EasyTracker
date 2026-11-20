@@ -3,11 +3,15 @@ package com.sdumsd11.easytracker.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -21,10 +25,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.core.RequestStatus
 import com.sdumsd11.easytracker.domain.model.InviteStatus
 import com.sdumsd11.easytracker.ui.components.AmountText
@@ -93,8 +99,10 @@ fun GroupDetailScreen(
     }
     ScreenScaffold(title = groupName ?: "Group", modifier = modifier, onBack = onBack) {
         when {
-            isLoading -> LoadingState("Loading group…")
+            // Error wins over the spinner: a stale Loading must never hide an
+            // actionable failure (cold cache + hung/dead backend otherwise spins forever).
             errorMessage != null -> ErrorState(errorMessage, onRetry = onRetry)
+            isLoading -> LoadingState("Loading group…")
             else -> GroupDetailContent(
                 groupId = groupId,
                 members = members,
@@ -162,7 +170,15 @@ private fun GroupDetailContent(
                                 enabled = !removing,
                                 modifier = Modifier.heightIn(min = 48.dp)
                                     .semantics { contentDescription = "Remove ${member.name}" },
-                            ) { Text(if (removing) "…" else "Remove") }
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.person_remove),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (removing) "…" else "Remove")
+                            }
                         }
                     }
                 }
@@ -221,19 +237,32 @@ private fun GroupDetailContent(
             FilledTonalButton(
                 onClick = { onMakePayment(groupId) },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) { Text("Make payment") }
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.payments),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Make payment")
+            }
+            SecondaryButton(
+                label = "Set up a debt",
+                icon = R.drawable.add,
+                onClick = { onSetupDebt(groupId) },
+            )
             if (isOwner) {
                 SecondaryButton("Edit group", onClick = { onEditGroup(groupId) })
-                SecondaryButton("Set up a debt", onClick = { onSetupDebt(groupId) })
             }
         }
         // History card: per-group payments + debts for owner/payer tracking.
         SectionCard(title = "History", modifier = Modifier.fillMaxWidth()) {
             when {
-                historyIsLoading || (!historyHasLoaded && historyError == null && history.isEmpty()) ->
-                    LoadingState("Loading history…")
+                // Same ordering: an actionable history failure beats the spinner.
                 history.isEmpty() && historyError != null ->
                     ErrorState(historyError, onRetry = onHistoryRetry)
+                historyIsLoading || (!historyHasLoaded && history.isEmpty()) ->
+                    LoadingState("Loading history…")
                 history.isEmpty() -> EmptyState(
                     title = "No activity yet",
                     message = "Payments and debts in this group will show up here.",

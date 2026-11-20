@@ -78,10 +78,15 @@ private val darkScheme = darkColorScheme(
     outlineVariant = Primary800,
 )
 
+/**
+ * Brand theme: positive polarity in light (Neutral900 on Neutral50), negative
+ * polarity in dark (Neutral50 on Neutral950) per ISO 9241-303 §5.5.2/5.5.3.
+ * The brand palette always wins (no dynamic-color override) so text contrast
+ * pairs are never overridden.
+ */
 @Composable
 fun EasyTrackerTheme(
     darkTheme: Boolean = false,
-    dynamicColor: Boolean = false, // opt-in only: brand palette wins by default
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(

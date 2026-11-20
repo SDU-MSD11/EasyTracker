@@ -12,8 +12,10 @@ import com.sdumsd11.easytracker.domain.groupNets
 import com.sdumsd11.easytracker.domain.model.Group
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /**
  * First-paint gate: an empty cache stays Loading until the first explicit refresh
@@ -35,6 +38,28 @@ internal fun groupsFirstLoad(
     refreshedOnce: Boolean,
 ): Boolean = status is RequestStatus.Pending ||
     (status is RequestStatus.Success && status.data.isEmpty() && !refreshedOnce)
+
+/**
+ * Hung-pass bound: a blackholed endpoint (backend never answers, socket accepted)
+ * would hang the refresh forever and wedge first paint on Loading. A pass that
+ * outlives [timeoutMs] becomes a named failure instead — loading ends when the
+ * groups pass settles, one way or another.
+ */
+internal const val REFRESH_TIMEOUT_MS = 30_000L
+
+internal suspend fun boundedRefresh(
+    label: String,
+    timeoutMs: Long = REFRESH_TIMEOUT_MS,
+    block: suspend () -> RequestStatus<Unit>,
+): RequestStatus<Unit> = try {
+    withTimeout(timeoutMs) { block() }
+} catch (e: TimeoutCancellationException) {
+    RequestStatus.Failed("$label refresh timed out.")
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    RequestStatus.Failed(e.message)
+}
 
 /** Group list + creation. Owner is the current session profile (auth-gate guarantees login). */
 @HiltViewModel
@@ -72,6 +97,15 @@ class GroupsViewModel @Inject constructor(
     private val _refreshedOnce = MutableStateFlow(false)
     val refreshedOnce: StateFlow<Boolean> = _refreshedOnce.asStateFlow()
 
+    /** One-shot permission prompt state; true once the rationale was answered. Eagerly
+     * subscribed so a dismissed prompt stays dismissed on re-entry (no one-frame flash). */
+    val notificationPromptSeen: StateFlow<Boolean> = prefs.notificationPromptSeen
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun markNotificationPromptSeen() = viewModelScope.launch(io) {
+        prefs.setNotificationPromptSeen()
+    }
+
     /** Last explicit-refresh failure (null when fresh); the nav error slot reads this. */
     private val _refreshError = MutableStateFlow<String?>(null)
     val refreshError: StateFlow<String?> = _refreshError.asStateFlow()
@@ -85,14 +119,22 @@ class GroupsViewModel @Inject constructor(
     }
 
     private fun launchRefresh() = viewModelScope.launch(io) {
-        // Boolean contract: false = network failed (cached data still shows); only a
-        // successful pass marks first paint done and clears the error slot.
-        val ok = runCatching { groups.refreshGroups() }.getOrDefault(false)
-        if (ok) {
+        // Status contract: repo failures carry the real message (warm caches hide the
+        // flow error, so the VM surfaces it). First paint gates on the groups pass
+        // alone — an expenses hang/failure only appends context, and a groups
+        // failure surfaces immediately instead of wedging on Loading.
+        val groupResult = boundedRefresh("Groups") { groups.refreshGroups() }
+        val expensesOk = runCatching {
+            withTimeout(REFRESH_TIMEOUT_MS) { expenses.refreshAllExpenses() }
+        }.getOrDefault(false)
+        if (groupResult is RequestStatus.Success) {
             _refreshedOnce.value = true
-            _refreshError.value = null
+            _refreshError.value = if (expensesOk) null else "Couldn't refresh expenses."
         } else {
-            _refreshError.value = "Couldn't refresh groups."
+            _refreshError.value = buildList {
+                add((groupResult as? RequestStatus.Failed)?.message ?: "Couldn't refresh groups.")
+                if (!expensesOk) add("Couldn't refresh expenses.")
+            }.joinToString(" ")
         }
     }
 

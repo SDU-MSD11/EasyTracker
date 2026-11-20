@@ -66,7 +66,7 @@ class ApiGroupRepository @Inject constructor(
             val list = rows.map { it.toDomain() }.sortedBy(Group::name)
             if (list.isEmpty() && err != null) err else RequestStatus.Success(list)
         }.onStart {
-            listRefresh.launchIn(scope) { fetchGroups() }
+            listRefresh.launchIn(scope) { fetchGroups() is RequestStatus.Success }
         }.flowOn(io)
 
     override fun observeGroup(groupId: GroupId): Flow<RequestStatus<Group?>> =
@@ -75,7 +75,7 @@ class ApiGroupRepository @Inject constructor(
             val err = errs[groupId]
             if (group == null && err != null) err else RequestStatus.Success(group)
         }.onStart {
-            itemRefresh.launchIn(scope, groupId) { fetchGroup(groupId) }
+            itemRefresh.launchIn(scope, groupId) { fetchGroup(groupId) is RequestStatus.Success }
         }.flowOn(io)
 
     override suspend fun createGroup(
@@ -112,7 +112,10 @@ class ApiGroupRepository @Inject constructor(
                 cacheMembers(r.data)
                 RequestStatus.Success(Unit)
             }
-            is RequestStatus.Failed -> if (runCatching { refreshGroup(groupId) }.getOrDefault(false)) {
+            is RequestStatus.Failed -> if (r.retryable && refreshGroup(groupId) is RequestStatus.Success) {
+                // Retryable (e.g. offline) loss: a fresh group read may already carry
+                // the member. Non-retryable (400/403/404, e.g. "user not found")
+                // propagates verbatim so the UI surfaces it.
                 RequestStatus.Success(Unit)
             } else {
                 r
@@ -124,7 +127,7 @@ class ApiGroupRepository @Inject constructor(
     override suspend fun removeMember(groupId: GroupId, userId: UserId): RequestStatus<Unit> = withContext(io) {
         when (val r = safeApiCall(clear401) { api.removeMember(groupId, userId) }) {
             is RequestStatus.Success -> {
-                runCatching { refreshGroup(groupId) }
+                refreshGroup(groupId)
                 RequestStatus.Success(Unit)
             }
             is RequestStatus.Failed -> r
@@ -137,7 +140,7 @@ class ApiGroupRepository @Inject constructor(
             // userId is the local caller; backend derives the invitee from the JWT.
             when (val r = safeApiCall(clear401) { api.respondToInvite(groupId, InviteRespondRequest(accept)) }) {
                 is RequestStatus.Success -> {
-                    runCatching { refreshGroup(groupId) }
+                    refreshGroup(groupId)
                     RequestStatus.Success(Unit)
                 }
                 is RequestStatus.Failed -> r
@@ -181,51 +184,51 @@ class ApiGroupRepository @Inject constructor(
     }
 
     /** Explicit refreshes for VM first-paint gates; bypass the background throttle. */
-    override suspend fun refreshGroups(): Boolean =
-        listRefresh.tryRun(force = true) { fetchGroups() }
+    override suspend fun refreshGroups(): RequestStatus<Unit> =
+        listRefresh.tryRunStatus(force = true) { fetchGroups() }
 
-    override suspend fun refreshGroup(groupId: GroupId): Boolean =
-        itemRefresh.tryRun(groupId, force = true) { fetchGroup(groupId) }
+    override suspend fun refreshGroup(groupId: GroupId): RequestStatus<Unit> =
+        itemRefresh.tryRunStatus(groupId, force = true) { fetchGroup(groupId) }
 
-    private suspend fun fetchGroups(): Boolean {
-        if (prefs.authToken.first().isNullOrBlank()) return true
+    private suspend fun fetchGroups(): RequestStatus<Unit> {
+        if (prefs.authToken.first().isNullOrBlank()) return RequestStatus.Success(Unit)
         return when (val r = safeApiCall(clear401) { api.getGroups() }) {
             // Signed out while in flight (signOut clears tables): never repopulate after the wipe.
             is RequestStatus.Success -> if (prefs.authToken.first().isNullOrBlank()) {
-                true
+                RequestStatus.Success(Unit)
             } else {
                 listError.value = null
                 r.data.forEach {
                     groups.upsert(it.toDomain().toEntity())
                     cacheMembers(it)
                 }
-                true
+                RequestStatus.Success(Unit)
             }
             is RequestStatus.Failed -> {
                 listError.value = r
-                false
+                RequestStatus.Failed(r.message, r.retryable)
             }
-            is RequestStatus.Pending -> true
+            is RequestStatus.Pending -> r
         }
     }
 
-    private suspend fun fetchGroup(groupId: GroupId): Boolean {
-        if (prefs.authToken.first().isNullOrBlank()) return true
+    private suspend fun fetchGroup(groupId: GroupId): RequestStatus<Unit> {
+        if (prefs.authToken.first().isNullOrBlank()) return RequestStatus.Success(Unit)
         return when (val r = safeApiCall(clear401) { api.getGroup(groupId) }) {
             // See refreshGroups: no cache writes after sign-out.
             is RequestStatus.Success -> if (prefs.authToken.first().isNullOrBlank()) {
-                true
+                RequestStatus.Success(Unit)
             } else {
                 itemErrors.update { it - groupId }
                 groups.upsert(r.data.toDomain().toEntity())
                 cacheMembers(r.data)
-                true
+                RequestStatus.Success(Unit)
             }
             is RequestStatus.Failed -> {
                 itemErrors.update { it + (groupId to r) }
-                false
+                RequestStatus.Failed(r.message, r.retryable)
             }
-            is RequestStatus.Pending -> true
+            is RequestStatus.Pending -> r
         }
     }
 
