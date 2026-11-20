@@ -4,14 +4,20 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.annotation.DrawableRes
 
 /** App card: 16dp corners, 16dp inner padding, 12dp content spacing, 1dp tonal outline, 4dp lift. */
 @Composable
@@ -33,9 +39,26 @@ fun EasyCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
 
 /** Card with a section heading (Members, Overview, Profile…) — one place for the pattern. */
 @Composable
-fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun SectionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    @DrawableRes icon: Int? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     EasyCard(modifier = modifier) {
-        SectionHeading(title)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (icon != null) {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            SectionHeading(title)
+        }
         content()
     }
 }

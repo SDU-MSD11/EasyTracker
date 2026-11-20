@@ -121,6 +121,8 @@ class ApiExpenseRepository @Inject constructor(
 
     override suspend fun addExpense(expense: Expense): RequestStatus<Expense> = withContext(io) {
         if (expense.amountCents < 0L) return@withContext RequestStatus.Failed("Amount must be >= 0")
+        // Backend is truth for payer (forces payer = caller); blank would 500 on the FK.
+        if (expense.payerId.isBlank()) return@withContext RequestStatus.Failed("Payer must not be blank")
         when (val r = safeApiCall(clear401) {
             api.createExpense(
                 expense.groupId,

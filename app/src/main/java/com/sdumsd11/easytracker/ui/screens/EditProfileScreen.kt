@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.core.RequestStatus
 import com.sdumsd11.easytracker.ui.components.Avatar
 import com.sdumsd11.easytracker.ui.components.RequestStatusBanner
@@ -26,7 +27,9 @@ import com.sdumsd11.easytracker.ui.theme.EasyTrackerTheme
 /**
  * Edit profile. Saving runs in the VM owner ([onSave] persists name/contact onto the
  * current profile); [saveResult] success fires [onDone] (the graph confirms with a
- * Snackbar). Phone is local-only — the User model has no phone field.
+ * Snackbar). Phone is local-only — the User model has no phone field. The Contact
+ * field edits the profile contact only — the login email is immutable here and is
+ * never changed by this screen (the client never sends `email` on PATCH /me).
  *
  * Pending disables the form and shows progress; failed shows the repo message with
  * Retry (re-submits the last values) and Dismiss ([onDismissError] clears the VM
@@ -38,14 +41,14 @@ fun EditProfileScreen(
     onDone: () -> Unit,
     onCancel: (() -> Unit)? = null,
     initialName: String = "",
-    initialEmail: String = "",
+    initialContact: String = "",
     initialPhone: String = "",
     saveResult: RequestStatus<Unit>? = null,
     onSave: (String, String) -> Unit = { _, _ -> },
     onDismissError: () -> Unit = {},
 ) {
     var name by remember { mutableStateOf(initialName) }
-    var email by remember { mutableStateOf(initialEmail) }
+    var contact by remember { mutableStateOf(initialContact) }
     var phone by remember { mutableStateOf(initialPhone) }
     var lastSubmitted by remember { mutableStateOf<Pair<String, String>?>(null) }
     val isSaving = saveResult is RequestStatus.Pending
@@ -71,9 +74,9 @@ fun EditProfileScreen(
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
+            value = contact,
+            onValueChange = { contact = it },
+            label = { Text("Contact") },
             singleLine = true,
             enabled = !isSaving,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -100,10 +103,11 @@ fun EditProfileScreen(
         )
         NavButton(
             if (isSaving) "Saving…" else "Save",
+            icon = R.drawable.edit,
             enabled = name.isNotBlank() && !isSaving,
             onClick = {
-                lastSubmitted = name to email
-                onSave(name, email)
+                lastSubmitted = name to contact
+                onSave(name, contact)
             },
         )
         SecondaryButton("Cancel", onClick = onCancel ?: onDone)

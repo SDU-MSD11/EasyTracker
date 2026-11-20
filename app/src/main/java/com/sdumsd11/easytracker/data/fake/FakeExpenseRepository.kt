@@ -70,6 +70,8 @@ class FakeExpenseRepository(
 
     override suspend fun addExpense(expense: Expense): RequestStatus<Expense> {
         if (expense.amountCents < 0L) return RequestStatus.Failed("Amount must be >= 0")
+        // Defensive mirror of the backend contract (payer = caller, never blank).
+        if (expense.payerId.isBlank()) return RequestStatus.Failed("Payer must not be blank")
         val stored = expense.copy(
             id = expense.id.ifBlank { UUID.randomUUID().toString() },
             createdAt = expense.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis(),

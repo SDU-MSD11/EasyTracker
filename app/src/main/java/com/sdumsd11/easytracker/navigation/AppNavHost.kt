@@ -1,16 +1,34 @@
 package com.sdumsd11.easytracker.navigation
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -19,15 +37,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.core.RequestStatus
 import com.sdumsd11.easytracker.ui.StatusEvent
 import com.sdumsd11.easytracker.ui.components.BackgroundSuccessHost
+import com.sdumsd11.easytracker.ui.components.NotificationPermissionPrompt
 import com.sdumsd11.easytracker.ui.statusBus
 import com.sdumsd11.easytracker.domain.accountStats
 import com.sdumsd11.easytracker.domain.debtLine
@@ -61,7 +83,11 @@ import com.sdumsd11.easytracker.ui.viewmodels.MakePaymentViewModel
 import com.sdumsd11.easytracker.ui.viewmodels.PaymentHistoryViewModel
 import com.sdumsd11.easytracker.ui.viewmodels.ProfileViewModel
 import com.sdumsd11.easytracker.ui.viewmodels.SetupDebtViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun rememberEasyNavController(): NavHostController = rememberNavController()
@@ -75,7 +101,10 @@ fun rememberEasyNavController(): NavHostController = rememberNavController()
  * to Login on unauthenticated VM state; auth success pops Login inclusively.
  */
 @Composable
-fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) {
+fun AppNavHost(
+    navController: NavHostController,
+    modifier: Modifier = Modifier,
+) {
     val entry by navController.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     // Global status surface: success confirmations and background-retry wins post a
@@ -85,6 +114,12 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
     val statusBus = remember(context) { context.applicationContext.statusBus() }
     val snackbarHostState = remember { SnackbarHostState() }
     val notifyScope = rememberCoroutineScope()
+    // Notification taps arrive as VIEW intents (`easytracker://<route>`, singleTop +
+    // scheme filter in the manifest). NavHost handles the activity intent on first
+    // composition and re-delivers warm taps itself — no manual handleDeepLink here
+    // (that double-navigated). Valid taps land via the graph's navDeepLink entries
+    // (cold start builds Splash -> destination, warm taps append on top); missing or
+    // malformed Uris are ignored so Splash routing runs as the fallback.
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -105,16 +140,28 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
             composable(Routes.Splash) {
                 val authVm: AuthViewModel = hiltViewModel()
                 val session by authVm.session.collectAsState()
-                SplashScreen(onDone = {
-                    val dest = if ((session as? RequestStatus.Success)?.data != null) {
-                        Routes.groups()
-                    } else {
-                        Routes.Login
-                    }
+                // Branding only — routing is session-driven below (single owner).
+                SplashScreen(onDone = {})
+                val firstPaintMs = remember { System.currentTimeMillis() }
+                // Exactly-once across effect restarts; the popUpTo collapses stray duplicates.
+                var splashRouted by rememberSaveable { mutableStateOf(false) }
+                // Session-driven gate: navigate exactly once when the session settles
+                // (Success(user) -> Groups, Success(null) -> Login) after the branding
+                // dwell. Keying on `session` restarts the bounded wait on every emission,
+                // so the common path never pays the timeout; a session that never
+                // settles falls back to Login instead of wedging startup.
+                LaunchedEffect(session) {
+                    val dest = awaitSplashDestination(authVm.session, firstPaintMs)
+                    if (!shouldRouteFromSplash(
+                            navController.currentBackStackEntry?.destination?.route,
+                            splashRouted,
+                        )
+                    ) return@LaunchedEffect
+                    splashRouted = true
                     navController.navigate(dest) {
                         popUpTo(Routes.Splash) { inclusive = true }
                     }
-                })
+                }
             }
             composable(Routes.Login) {
                 val authVm: AuthViewModel = hiltViewModel()
@@ -154,6 +201,10 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
             composable(
                 Routes.Groups,
                 listOf(navArgument(Routes.ArgTab) { defaultValue = GroupsTab.JOINED }),
+                deepLinks = listOf(
+                    navDeepLink { uriPattern = "easytracker://groups" },
+                    navDeepLink { uriPattern = "easytracker://groups?tab={tab}" },
+                ),
             ) {
                 val authVm: AuthViewModel = hiltViewModel()
                 val session by authVm.session.collectAsState()
@@ -175,6 +226,7 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                     (summariesState as? RequestStatus.Success)?.data.orEmpty(),
                     myId,
                 )
+                val promptSeen by groupsVm.notificationPromptSeen.collectAsState()
                 GroupsOverviewScreen(
                     onGroupClick = { navController.navigate(Routes.groupDetail(it)) },
                     onCreateGroup = { navController.navigate(Routes.CreateGroup) },
@@ -186,6 +238,14 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                     onRetry = groupsVm::retry,
                     onRefresh = groupsVm::refresh,
                     hasLoaded = groupsLoaded,
+                    // First Groups paint after login: one-shot inline rationale card.
+                    topBanner = {
+                        NotificationPermissionPrompt(
+                            promptSeen = promptSeen,
+                            onPromptSeen = groupsVm::markNotificationPromptSeen,
+                            onOpenSettings = { navController.navigate(Routes.Settings) },
+                        )
+                    },
                 )
             }
             composable(Routes.CreateGroup) {
@@ -206,7 +266,18 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
             composable(
                 Routes.GroupDetail,
                 listOf(navArgument(Routes.ArgGroupId) { type = NavType.StringType }),
+                deepLinks = listOf(
+                    navDeepLink { uriPattern = "easytracker://groups/{groupId}" },
+                ),
             ) {
+                val authVm: AuthViewModel = hiltViewModel()
+                val session by authVm.session.collectAsState()
+                RequireAuth(session) {
+                    navController.navigate(Routes.Login) {
+                        popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
                 val gid = it.arguments?.getString(Routes.ArgGroupId).orEmpty()
                 val detailVm: GroupDetailViewModel = hiltViewModel()
                 val isOwner by detailVm.isOwner.collectAsState()
@@ -314,7 +385,6 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                 val session by authVm.session.collectAsState()
                 val debtVm: SetupDebtViewModel = hiltViewModel()
                 val saveResult by debtVm.saveResult.collectAsState()
-                val payerId = (session as? RequestStatus.Success)?.data?.id.orEmpty()
                 val gid = it.arguments?.getString(Routes.ArgGroupId).orEmpty()
                 // Same ArgGroupId key, so this VM resolves members + name for the debt route.
                 val detailVm: GroupDetailViewModel = hiltViewModel()
@@ -326,6 +396,13 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                 val editing by debtVm.editingExpense(gid, debtId.orEmpty())
                     .collectAsState(initial = RequestStatus.Pending)
                 val editingExpense = (editing as? RequestStatus.Success)?.data
+                // Payer is fixed to the session user (screen shows it display-only):
+                // the backend derives the payer from the JWT, so the dropdown value is
+                // never trusted — onSave always passes the session id (null until the
+                // session loads; the screen stays disabled, never another member).
+                // No owner gate here: any member can set up a debt.
+                val sessionId = (session as? RequestStatus.Success)?.data?.id
+                val effectivePayer = sessionId?.takeIf { it.isNotBlank() }
                 SetupDebtScreen(
                     groupId = gid,
                     debtId = debtId,
@@ -335,10 +412,10 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                         navController.popBackStack()
                     },
                     saveResult = saveResult,
-                    onSave = { payer, cents, note -> debtVm.save(gid, payer, cents, note, debtId) },
+                    onSave = { _, cents, note -> debtVm.save(gid, effectivePayer.orEmpty(), cents, note, debtId) },
                     groupName = (groupState as? RequestStatus.Success)?.data?.name,
                     participants = participants,
-                    initialPayerId = editingExpense?.payerId ?: payerId.ifBlank { null },
+                    initialPayerId = editingExpense?.payerId ?: effectivePayer,
                     onDismissError = debtVm::clearSaveResult,
                 )
             }
@@ -453,7 +530,20 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                     ),
                 )
             }
-            composable(Routes.PaymentHistory) {
+            composable(
+                Routes.PaymentHistory,
+                deepLinks = listOf(
+                    navDeepLink { uriPattern = "easytracker://account/history" },
+                ),
+            ) {
+                val authVm: AuthViewModel = hiltViewModel()
+                val session by authVm.session.collectAsState()
+                RequireAuth(session) {
+                    navController.navigate(Routes.Login) {
+                        popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
                 val historyVm: PaymentHistoryViewModel = hiltViewModel()
                 val history by historyVm.history.collectAsState()
                 val historyRefreshError by historyVm.refreshError.collectAsState()
@@ -489,13 +579,45 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                     hasLoaded = historyLoaded,
                 )
             }
-            composable(Routes.Settings) {
+            composable(
+                Routes.Settings,
+                deepLinks = listOf(
+                    navDeepLink { uriPattern = "easytracker://settings" },
+                ),
+            ) {
                 val authVm: AuthViewModel = hiltViewModel()
+                val session by authVm.session.collectAsState()
+                RequireAuth(session) {
+                    navController.navigate(Routes.Login) {
+                        popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
                 val scope = rememberCoroutineScope()
                 val profileVm: ProfileViewModel = hiltViewModel()
                 val profileState by profileVm.profile.collectAsState()
                 val prefs = (profileState as? RequestStatus.Success)?.data?.notificationPrefs
                 val darkTheme by profileVm.darkTheme.collectAsState()
+                // Re-read the OS grant when returning from system settings; null below 33.
+                var resumeTick by remember { mutableIntStateOf(0) }
+                val lifecycleOwner = context as? LifecycleOwner
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) resumeTick++
+                    }
+                    lifecycleOwner?.lifecycle?.addObserver(observer)
+                    onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
+                }
+                val systemNotificationsOn: Boolean? = remember(resumeTick) {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                        null
+                    } else {
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        ) == PackageManager.PERMISSION_GRANTED
+                    }
+                }
                 SettingsScreen(
                     onEditProfile = { navController.navigate(Routes.EditProfile) },
                     onSignOut = { scope.launch { signOut(authVm, navController) } },
@@ -513,6 +635,15 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                     },
                     darkTheme = darkTheme,
                     onDarkThemeChange = profileVm::setDarkTheme,
+                    systemNotificationsOn = systemNotificationsOn,
+                    onOpenSystemSettings = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            },
+                        )
+                    },
                 )
             }
             composable(Routes.EditProfile) {
@@ -530,9 +661,9 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                         },
                         onCancel = { navController.popBackStack() },
                         initialName = me?.name.orEmpty(),
-                        initialEmail = me?.contact.orEmpty(),
+                        initialContact = me?.contact.orEmpty(),
                         saveResult = saveResult,
-                        onSave = { name, email -> profileVm.save(name, email) },
+                        onSave = { name, contact -> profileVm.save(name, contact) },
                         onDismissError = profileVm::clearSaveResult,
                     )
                 }
@@ -544,7 +675,21 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
                     navArgument(Routes.ArgAmount) { type = NavType.LongType; defaultValue = 0L },
                     navArgument(Routes.ArgGroupId) { type = NavType.StringType; nullable = true },
                 ),
+                deepLinks = listOf(
+                    navDeepLink { uriPattern = "easytracker://receipts" },
+                    navDeepLink {
+                        uriPattern = "easytracker://receipts?txId={txId}&amountCents={amountCents}&groupId={groupId}"
+                    },
+                ),
             ) {
+                val authVm: AuthViewModel = hiltViewModel()
+                val session by authVm.session.collectAsState()
+                RequireAuth(session) {
+                    navController.navigate(Routes.Login) {
+                        popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
                 val tx = it.arguments?.getString(Routes.ArgTxId).orEmpty()
                 val amount = it.arguments?.getLong(Routes.ArgAmount) ?: 0L
                 val gid = it.arguments?.getString(Routes.ArgGroupId).orEmpty()
@@ -564,6 +709,47 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
         }
     }
 }
+
+/** Minimum Splash branding dwell from first paint; the gate never routes earlier. */
+internal const val SPLASH_MIN_DWELL_MS = 800L
+
+/**
+ * Hung-session bound: the token read is async DataStore IO — if it never lands
+ * (slow disk, a thrown read killing the share), startup must still route. Past this
+ * the gate treats the session as logged-out.
+ */
+internal const val SPLASH_SESSION_TIMEOUT_MS = 5_000L
+
+/**
+ * Splash routing decision (pure timing/flow logic, no nav): awaits the settled session
+ * up to [timeoutMs], enforces the branding dwell from [startedMs], then maps
+ * user -> Groups, anything else (logged-out OR still-unsettled) -> Login. Never
+ * suspends past timeout + dwell, so a wedged session read can never wedge startup.
+ */
+internal suspend fun awaitSplashDestination(
+    sessions: Flow<RequestStatus<User?>>,
+    startedMs: Long,
+    nowMs: () -> Long = System::currentTimeMillis,
+    timeoutMs: Long = SPLASH_SESSION_TIMEOUT_MS,
+    minDwellMs: Long = SPLASH_MIN_DWELL_MS,
+): String {
+    val settled = withTimeoutOrNull(timeoutMs) {
+        sessions.first { it is RequestStatus.Success }
+    } as? RequestStatus.Success
+    val remain = minDwellMs - (nowMs() - startedMs)
+    if (remain > 0) delay(remain)
+    val user = settled?.data
+    return if (user != null) Routes.groups() else Routes.Login
+}
+
+/**
+ * Splash routing guard (pure, unit-tested): route only once and only while the
+ * current entry is still Splash. A handled deep-link tap already landed elsewhere,
+ * so its stack must not be disturbed; any other 2-entry stack with Splash on top
+ * (the old `size > 1` SKIP wedge) still routes — the popUpTo collapses duplicates.
+ */
+internal fun shouldRouteFromSplash(currentRoute: String?, alreadyRouted: Boolean): Boolean =
+    !alreadyRouted && currentRoute == Routes.Splash
 
 /**
  * Auth-gate: fires [onUnauthenticated] exactly when the session VM reports logged-out.
@@ -608,19 +794,25 @@ private fun ForwardWhenAuthenticated(session: RequestStatus<User?>, navControlle
 
 @Composable
 private fun BottomTabs(selected: String?, onTab: (String) -> Unit) {
-    // Text glyphs: no icons dep in this slice.
+    // (iconRes, label, route) — 48dp min touch targets via NavigationBarItem defaults.
     val tabs = listOf(
-        "Groups" to Routes.groups(),
-        "Account" to Routes.Account,
-        "Settings" to Routes.Settings,
+        Triple(R.drawable.group, "Groups", Routes.groups()),
+        Triple(R.drawable.person, "Account", Routes.Account),
+        Triple(R.drawable.settings, "Settings", Routes.Settings),
     )
     NavigationBar {
-        tabs.forEach { (label, route) ->
+        tabs.forEach { (iconRes, label, route) ->
             val isSelected = selected == route || (label == "Groups" && selected == Routes.Groups)
             NavigationBarItem(
                 selected = isSelected,
                 onClick = { if (!isSelected) onTab(route) },
-                icon = { Text(label.take(1)) },
+                icon = {
+                    Icon(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                },
                 label = { Text(label) },
             )
         }

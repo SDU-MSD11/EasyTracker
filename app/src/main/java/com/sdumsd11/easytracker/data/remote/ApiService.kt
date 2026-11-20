@@ -19,6 +19,9 @@ interface ApiService {
     @GET("me")
     suspend fun me(): Response<UserDto>
 
+    @PATCH("me")
+    suspend fun patchMe(@Body body: PatchMeRequest): Response<UserDto>
+
     @GET("groups")
     suspend fun getGroups(): Response<List<GroupDto>>
 

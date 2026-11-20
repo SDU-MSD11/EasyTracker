@@ -2,15 +2,18 @@ package com.sdumsd11.easytracker.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
@@ -23,10 +26,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.ui.components.AmountText
 import com.sdumsd11.easytracker.ui.components.Avatar
 import com.sdumsd11.easytracker.ui.components.EasyCard
@@ -63,6 +68,7 @@ fun GroupsOverviewScreen(
     settledGroups: List<GroupSummary>? = null,
     onRefresh: () -> Unit = {},
     hasLoaded: Boolean = true,
+    topBanner: @Composable ColumnScope.() -> Unit = {},
 ) {
     var internalTab by remember { mutableIntStateOf(0) }
     val tab = selectedTab ?: internalTab
@@ -78,7 +84,7 @@ fun GroupsOverviewScreen(
         actions = {
             TextButton(
                 onClick = onRefresh,
-                enabled = !isLoading,
+                enabled = !isLoading || errorMessage != null,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Refresh") }
             if (onAccountClick != null) {
@@ -95,20 +101,26 @@ fun GroupsOverviewScreen(
                 onClick = onCreateGroup,
                 modifier = Modifier.semantics { contentDescription = "Create group" },
                 content = {
-                    Text("+", style = MaterialTheme.typography.headlineMedium)
+                    Icon(
+                        painter = painterResource(R.drawable.add),
+                        contentDescription = null,
+                    )
                 },
             )
         },
         scrollable = false,
     ) {
+        topBanner()
         PrimaryTabRow(selectedTabIndex = tab, modifier = Modifier.fillMaxWidth()) {
             Tab(selected = tab == 0, onClick = { select(0) }, text = { Text("Joined") })
             Tab(selected = tab == 1, onClick = { select(1) }, text = { Text("Settled up") })
         }
         when {
-            isLoading -> LoadingState("Loading groups…")
-            !hasLoaded && groups.isEmpty() && errorMessage == null -> LoadingState("Loading groups…")
+            // Error wins over the spinner: a stale Loading must never hide an
+            // actionable failure (cold cache + hung/dead backend otherwise spins forever).
             errorMessage != null -> ErrorState(errorMessage, onRetry = onRetry)
+            isLoading -> LoadingState("Loading groups…")
+            !hasLoaded && groups.isEmpty() -> LoadingState("Loading groups…")
             shown.isEmpty() -> if (tab == 0) {
                 EmptyState(
                     title = "No groups yet",
@@ -140,6 +152,12 @@ private fun GroupCard(name: String, balanceCents: Long, onOpen: () -> Unit) {
     }
     EasyCard(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.group),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(12.dp))
             Avatar(name = name, description = "Avatar for $name")
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {

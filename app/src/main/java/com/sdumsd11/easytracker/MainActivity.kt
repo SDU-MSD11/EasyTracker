@@ -22,6 +22,11 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var themeSettings: ThemeSettings
 
+    /**
+     * Notification taps arrive as VIEW intents (`easytracker://<route>`); NavHost
+     * handles the activity intent itself (cold start + singleTop warm taps), so the
+     * activity just hosts the graph — no intent forwarding needed.
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

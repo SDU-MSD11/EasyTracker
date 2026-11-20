@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -17,8 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.ui.components.AmountText
 import com.sdumsd11.easytracker.ui.components.EasyCard
 import com.sdumsd11.easytracker.ui.components.EmptyState
@@ -109,7 +113,15 @@ fun PaymentHistoryScreen(
                     Text(group, style = MaterialTheme.typography.titleSmall)
                     txs.forEach { tx ->
                         EasyCard(modifier = Modifier.fillMaxWidth()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.receipt),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
                                 Text(
                                     text = tx.title,
                                     style = MaterialTheme.typography.titleMedium,

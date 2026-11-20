@@ -33,7 +33,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,6 +45,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeout
 
 /**
  * First-paint gate: a missing group / empty debt summary stays Loading until the
@@ -92,20 +92,27 @@ class GroupDetailViewModel @Inject constructor(
         launchRefresh()
     }
 
-    /** Both refreshes run even if one fails; refreshedOnce lands only when both succeed. */
+    /** First paint gates on the group pass; the expenses pass only appends context. */
     private fun launchRefresh() = viewModelScope.launch(io) {
-        // Boolean contract: false = network failed (cached data still shows).
-        val ok = supervisorScope {
-            listOf(
-                async { runCatching { groups.refreshGroup(groupId) }.getOrDefault(false) },
-                async { runCatching { expenses.refreshExpenses(groupId) }.getOrDefault(false) },
-            ).awaitAll().all { it }
+        // Status contract: the group pass carries the real message (warm caches hide
+        // the flow error, so the VM surfaces it). A group failure surfaces
+        // immediately; an expenses hang/failure never holds first paint.
+        val (groupResult, expensesOk) = supervisorScope {
+            val g = async { boundedRefresh("Group") { groups.refreshGroup(groupId) } }
+            val e = async {
+                runCatching { withTimeout(REFRESH_TIMEOUT_MS) { expenses.refreshExpenses(groupId) } }
+                    .getOrDefault(false)
+            }
+            g.await() to e.await()
         }
-        if (ok) {
+        if (groupResult is RequestStatus.Success) {
             _refreshedOnce.value = true
-            _refreshError.value = null
+            _refreshError.value = if (expensesOk) null else "Couldn't refresh expenses."
         } else {
-            _refreshError.value = "Couldn't refresh group data."
+            _refreshError.value = buildList {
+                add((groupResult as? RequestStatus.Failed)?.message ?: "Couldn't refresh group data.")
+                if (!expensesOk) add("Couldn't refresh expenses.")
+            }.joinToString(" ")
         }
     }
 

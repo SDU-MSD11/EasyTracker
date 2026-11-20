@@ -1,5 +1,6 @@
 package com.sdumsd11.easytracker.data
 
+import com.sdumsd11.easytracker.core.RequestStatus
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -9,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -96,5 +98,53 @@ class RefreshSingleFlightTest {
         assertEquals(true, gate.tryRun { true })
         // Skipped (block never runs, so its `false` is never observed): still true.
         assertEquals(true, gate.tryRun { false })
+    }
+
+    @Test
+    fun statusCarriesFailureReason() = runBlocking {
+        val gate = RefreshSingleFlight(minIntervalMs = 0L)
+        val failed = gate.tryRunStatus { RequestStatus.Failed("boom") }
+        assertTrue(failed is RequestStatus.Failed)
+        assertEquals("boom", (failed as RequestStatus.Failed).message)
+        assertTrue(gate.tryRunStatus { RequestStatus.Success(Unit) } is RequestStatus.Success)
+    }
+
+    @Test
+    fun statusThrowsBecomeFailedWithMessage() = runBlocking {
+        val gate = RefreshSingleFlight(minIntervalMs = 0L)
+        val result = gate.tryRunStatus { throw IllegalStateException("cache write failed") }
+        assertTrue(result is RequestStatus.Failed)
+        assertEquals("cache write failed", (result as RequestStatus.Failed).message)
+    }
+
+    @Test
+    fun statusCollapsedPassCountsAsFresh() = runBlocking {
+        val gate = RefreshSingleFlight(minIntervalMs = 0L)
+        val entered = AtomicInteger(0)
+        val release = CompletableDeferred<Unit>()
+        val first = async(Dispatchers.Default) {
+            gate.tryRunStatus {
+                entered.incrementAndGet()
+                release.await()
+                RequestStatus.Success(Unit)
+            }
+        }
+        withTimeout(5_000L) { while (entered.get() == 0) delay(1L) }
+        // Collapsed onto the in-flight pass: fresh, block ran once.
+        val second = async(Dispatchers.Default) {
+            gate.tryRunStatus { RequestStatus.Failed("never runs") }
+        }
+        assertTrue(second.await() is RequestStatus.Success)
+        release.complete(Unit)
+        assertTrue(first.await() is RequestStatus.Success)
+        assertEquals(1, entered.get())
+    }
+
+    @Test
+    fun keyedStatusRefreshesIndependently() = runBlocking {
+        val gates = KeyedRefreshSingleFlight(minIntervalMs = 0L)
+        assertTrue(gates.tryRunStatus("a") { RequestStatus.Success(Unit) } is RequestStatus.Success)
+        val failed = gates.tryRunStatus("b") { RequestStatus.Failed("no route") }
+        assertEquals("no route", (failed as RequestStatus.Failed).message)
     }
 }

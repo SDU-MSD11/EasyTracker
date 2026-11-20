@@ -42,8 +42,12 @@ object NetworkModule {
         val builder = OkHttpClient.Builder()
             .addInterceptor(auth)
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
+            // Blackholed-backend guard: Express without async error middleware never
+            // answers on DB outage, so connect/read timeouts alone never fire on an
+            // accepted-but-silent socket — the whole call must be bounded instead.
+            .callTimeout(30, TimeUnit.SECONDS)
         // Logging ships in debug builds only (debugImplementation dep).
         if (BuildConfig.DEBUG) {
             builder.addInterceptor(

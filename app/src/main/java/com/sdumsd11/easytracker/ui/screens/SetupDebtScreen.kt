@@ -24,6 +24,10 @@ import kotlin.math.roundToLong
  * Set up debt. Persisting runs in the VM owner ([onSave] stores an expense split among
  * the group members); [saveResult] success fires [onDone] (debtId != null = edit existing).
  *
+ * The payer is always the current user — [initialPayerId] carries the session user id
+ * (nav owner) and renders display-only ("Paid by: …"); there is no payer picker, so
+ * nobody can create a debt "for" another member.
+ *
  * [participants] are real group members (id + display name) from GroupDetailViewModel;
  * only member ids are ever passed to [onSave] — never display names. Empty list means
  * the group hasn't loaded: Save stays disabled and an error shows instead of writing
@@ -53,19 +57,21 @@ fun SetupDebtScreen(
         mutableStateOf(initialAmountCents?.let { "%.2f".format(it / 100.0) } ?: "")
     }
     var note by remember(debtId) { mutableStateOf(initialNote) }
-    var payerId by remember(participants, initialPayerId) {
-        mutableStateOf(
-            initialPayerId?.takeIf { id -> participants.any { it.id == id } }
-                ?: participants.firstOrNull()?.id.orEmpty(),
-        )
-    }
     var lastSubmitted by remember { mutableStateOf<Triple<String, Long, String>?>(null) }
     val cents = amount.toDoubleOrNull()?.let { (it * 100).roundToLong() }
     val valid = cents != null && cents > 0L
     val isSaving = saveResult is RequestStatus.Pending
     val isFailed = saveResult is RequestStatus.Failed
     val byId = remember(participants) { participants.associateBy { it.id } }
+    // Fixed payer: session user id (nav owner); blank until the session loads — never
+    // another member. A stored payer that left the group renders an unknown short-ref
+    // placeholder (display-only); Save stays disabled until the payer is a known member.
+    val payerId = initialPayerId?.takeIf { it.isNotBlank() }.orEmpty()
     val payerValid = payerId.isNotBlank() && byId.containsKey(payerId)
+    val payerName = when {
+        payerId.isBlank() -> null
+        else -> byId[payerId]?.name ?: "Unknown ••••${payerId.takeLast(4)}"
+    }
     val membersMissing = participants.isEmpty()
     LaunchedEffect(saveResult) {
         if (saveResult is RequestStatus.Success) onDone()
@@ -76,13 +82,7 @@ fun SetupDebtScreen(
         onBack = onDone,
     ) {
         Text("Group: ${groupName ?: "Loading…"}")
-        MemberDropdown(
-            label = "Paid by",
-            valueId = payerId,
-            options = participants,
-            enabled = !isSaving && !membersMissing,
-            onSelect = { payerId = it },
-        )
+        Text("Paid by: ${payerName ?: "…"}")
         OutlinedTextField(
             value = amount,
             onValueChange = { amount = it },

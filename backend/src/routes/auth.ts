@@ -38,3 +38,25 @@ authRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
   if (!r.rowCount) return res.status(404).json({ error: "not found" });
   res.json(toUserJson(r.rows[0]));
 });
+
+const patchMe = z.object({ name: z.string().min(1).optional(), contact: z.string().optional(), email: z.string().email().optional() });
+
+// Profile write: persists name/contact so the profile is visible to others and
+// survives relogin (server is the source of truth; GET /me returns it fresh).
+// Email changes are validated + unique-checked like registration.
+authRouter.patch("/me", requireAuth, async (req: AuthedRequest, res) => {
+  const p = patchMe.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: "invalid body" });
+  const { name, contact, email } = p.data;
+  if (email !== undefined) {
+    const taken = await q("SELECT id FROM users WHERE email=$1 AND id<>$2", [email.toLowerCase(), req.user!.id]);
+    if (taken.rowCount) return res.status(409).json({ error: "email taken" });
+  }
+  const r = await q(
+    `UPDATE users SET name=COALESCE($1,name), contact=COALESCE($2,contact), email=COALESCE($3,email)
+     WHERE id=$4 RETURNING id,name,email,contact`,
+    [name?.trim() ?? null, contact ?? null, email?.toLowerCase() ?? null, req.user!.id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "not found" });
+  res.json(toUserJson(r.rows[0]));
+});

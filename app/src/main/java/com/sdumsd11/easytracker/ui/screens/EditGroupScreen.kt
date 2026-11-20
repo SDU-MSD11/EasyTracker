@@ -15,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sdumsd11.easytracker.R
 import com.sdumsd11.easytracker.core.RequestStatus
 import com.sdumsd11.easytracker.domain.model.Group
 import com.sdumsd11.easytracker.ui.components.EasyCard
@@ -102,6 +103,7 @@ fun EditGroupScreen(
                 }
                 NavButton(
                     label = if (inviting) "Inviting…" else "Invite member",
+                    icon = R.drawable.person_add,
                     enabled = inviteEmail.contains("@") && !inviting,
                     onClick = { onInvite(inviteEmail.trim()) },
                 )

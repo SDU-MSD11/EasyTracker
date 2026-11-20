@@ -1,5 +1,6 @@
 package com.sdumsd11.easytracker.data
 
+import com.sdumsd11.easytracker.core.RequestStatus
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -52,6 +53,23 @@ internal class RefreshSingleFlight(private val minIntervalMs: Long = 5_000) {
     fun launchIn(scope: CoroutineScope, block: suspend () -> Boolean) {
         scope.launch { runCatching { tryRun(block = block) } }
     }
+
+    /**
+     * Status-carrying [tryRun]: captures the block's [RequestStatus] (collapsed /
+     * throttled passes count as fresh); unexpected throws become Failed with the
+     * real message instead of a bare false.
+     */
+    suspend fun tryRunStatus(
+        force: Boolean = false,
+        block: suspend () -> RequestStatus<Unit>,
+    ): RequestStatus<Unit> {
+        var result: RequestStatus<Unit> = RequestStatus.Success(Unit)
+        tryRun(force) {
+            result = runCatching { block() }.getOrElse { RequestStatus.Failed(it.message) }
+            result is RequestStatus.Success
+        }
+        return result
+    }
 }
 
 /** Per-key [RefreshSingleFlight] (per-group detail/expense refreshes dedupe independently). */
@@ -65,4 +83,12 @@ internal class KeyedRefreshSingleFlight(private val minIntervalMs: Long = 5_000)
     /** Suspending [RefreshSingleFlight.tryRun]: awaits the pass instead of fire-and-forget. */
     suspend fun tryRun(key: String, force: Boolean = false, block: suspend () -> Boolean): Boolean =
         gates.getOrPut(key) { RefreshSingleFlight(minIntervalMs) }.tryRun(force, block)
+
+    /** Suspending status-carrying pass (see [RefreshSingleFlight.tryRunStatus]). */
+    suspend fun tryRunStatus(
+        key: String,
+        force: Boolean = false,
+        block: suspend () -> RequestStatus<Unit>,
+    ): RequestStatus<Unit> =
+        gates.getOrPut(key) { RefreshSingleFlight(minIntervalMs) }.tryRunStatus(force, block)
 }

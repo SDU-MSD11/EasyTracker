@@ -36,7 +36,7 @@ class ProfileViewModel @Inject constructor(
     private val _saveResult = MutableStateFlow<RequestStatus<Unit>?>(null)
     val saveResult: StateFlow<RequestStatus<Unit>?> = _saveResult.asStateFlow()
 
-    /** Persists name/contact onto the current profile (no PATCH /me route exists). */
+    /** Persists name/contact onto the current profile (via PATCH /me). */
     fun save(name: String, contact: String) = viewModelScope.launch(io) {
         _saveResult.value = RequestStatus.Pending
         _saveResult.value = runRequest {
